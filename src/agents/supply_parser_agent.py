@@ -8,7 +8,6 @@ from typing import Any
 from loguru import logger
 
 from src.agents.base_sub_agent import BaseSubAgent
-from src.services.llm_service import llm_service
 
 
 class SupplyParserAgent(BaseSubAgent):
@@ -192,12 +191,8 @@ class SupplyParserAgent(BaseSubAgent):
         """處理查詢中的房間備品名稱"""
         logger.info(f"解析查詢中的房間備品名稱: {query}")
 
-        # 嘗試使用正則表達式解析備品名稱
+        # 使用正則表達式解析備品名稱
         supply_name = self._extract_supply_with_regex(query)
-
-        # 如果正則表達式無法解析，使用LLM解析
-        if not supply_name:
-            supply_name = await self._extract_supply_with_llm(query)
 
         # 檢查是否是備品搜尋模式
         is_supply_search = bool(supply_name)
@@ -231,49 +226,6 @@ class SupplyParserAgent(BaseSubAgent):
                 return supply
 
         return ""
-
-    async def _extract_supply_with_llm(self, query: str) -> str:
-        """使用LLM從查詢中提取備品名稱"""
-        # 構建常見備品列表字符串
-        common_supplies_str = ", ".join(self.common_supplies[:30])  # 只使用前30個常見備品，避免提示詞過長
-
-        system_prompt = f"""
-        你是一個旅館預訂系統的備品解析器。
-        你的任務是從用戶的自然語言查詢中提取房間備品名稱。
-        
-        常見的房間備品包括：{common_supplies_str}等。
-        
-        請判斷用戶是否在查詢中提到了特定的房間備品。
-        如果有，請直接返回該備品的名稱（只返回一個最主要的備品名稱）。
-        如果沒有，請返回空字符串。
-        
-        請直接返回備品名稱，不要添加任何其他內容。
-        """
-
-        messages = [{"role": "user", "content": f"從以下查詢中提取房間備品名稱：{query}"}]
-        response = await llm_service.generate_response(messages, system_prompt)
-
-        # 清理回應
-        supply_name = response.strip()
-
-        # 如果回應為空或明確表示沒有備品，返回空字符串
-        if not supply_name or supply_name.lower() in ["無", "沒有", "none", "no", "null", "nil"]:
-            return ""
-
-        # 如果回應過長，可能不是單一備品名稱，嘗試提取
-        if len(supply_name) > 10:
-            # 嘗試從回應中提取常見備品
-            for supply in self.common_supplies:
-                if supply in supply_name:
-                    logger.info(f"從LLM回應中提取到備品名稱: {supply}")
-                    return supply
-
-            # 如果無法提取，返回空字符串
-            logger.warning(f"LLM回應過長且無法提取備品名稱: {supply_name}")
-            return ""
-
-        logger.info(f"LLM解析到備品名稱: {supply_name}")
-        return supply_name
 
 
 # 創建備品搜尋子Agent實例
