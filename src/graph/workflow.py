@@ -2,7 +2,7 @@
 LangGraph 工作流，定義代理之間的協作流程
 """
 
-from typing import Any, TypedDict
+from typing import Any, Callable, TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -12,6 +12,7 @@ from src.agents.hotel_search_agent import hotel_search_agent
 from src.agents.poi_search_agent import poi_search_agent
 from src.agents.query_parser_agent import query_parser_agent
 from src.agents.response_generator_agent import response_generator_agent
+from src.utils.geo_parser import geo_parser
 
 
 # 定義工作流狀態類型
@@ -28,12 +29,20 @@ class WorkflowState(TypedDict):
     response: str
     initial_response: str
     error: str
+    geo_data: dict[str, Any] | None
+
+
+# 定義進度回調類型
+ProgressCallback = Callable[[str, dict[str, Any] | None, str | None], None]
 
 
 # 定義節點函數
-async def parse_query(state: WorkflowState) -> WorkflowState:
+async def parse_query(state: WorkflowState, progress_callback: ProgressCallback | None = None) -> WorkflowState:
     """解析查詢節點"""
-    # TODO: 實現解析查詢節點
+    # 發送進度訊息
+    if progress_callback:
+        progress_callback("parse_query", None, None)
+
     logger.info("執行解析查詢節點")
 
     user_query = state.get("user_query", "")
@@ -44,16 +53,39 @@ async def parse_query(state: WorkflowState) -> WorkflowState:
     new_state["parsed_query"] = result.get("parsed_query", {})
     new_state["original_query"] = result.get("original_query", "")
 
+    # 解析地理位置數據
+    try:
+        geo_data = await geo_parser.parse_geo_entities(user_query)
+        new_state["geo_data"] = {
+            "county": geo_data.get("counties", [{}])[0].get("name") if geo_data.get("counties") else None,
+            "district": geo_data.get("districts", [{}])[0].get("name") if geo_data.get("districts") else None,
+            "locations": [loc.get("name") for loc in geo_data.get("locations", [])]
+            if geo_data.get("locations")
+            else [],
+        }
+
+        # 發送地理位置解析結果
+        if progress_callback and new_state["geo_data"]:
+            progress_callback("geo_parse", new_state["geo_data"], None)
+    except Exception as e:
+        logger.error(f"解析地理位置時發生錯誤: {e}")
+        # 不中斷流程，繼續執行
+
     # 檢查錯誤
     if "error" in result:
         new_state["error"] = result["error"]
+        if progress_callback:
+            progress_callback("error", None, result["error"])
 
     return new_state
 
 
-async def search_hotels(state: WorkflowState) -> WorkflowState:
+async def search_hotels(state: WorkflowState, progress_callback: ProgressCallback | None = None) -> WorkflowState:
     """搜索旅館節點"""
-    # TODO: 實現搜索旅館節點
+    # 發送進度訊息
+    if progress_callback:
+        progress_callback("search_hotels", None, None)
+
     logger.info("執行搜索旅館節點")
 
     parsed_query = state.get("parsed_query", {})
@@ -68,13 +100,18 @@ async def search_hotels(state: WorkflowState) -> WorkflowState:
     # 檢查錯誤
     if "error" in result:
         new_state["error"] = result["error"]
+        if progress_callback:
+            progress_callback("error", None, result["error"])
 
     return new_state
 
 
-async def search_pois(state: WorkflowState) -> WorkflowState:
+async def search_pois(state: WorkflowState, progress_callback: ProgressCallback | None = None) -> WorkflowState:
     """搜索周邊地標節點"""
-    # TODO: 實現搜索周邊地標節點
+    # 發送進度訊息
+    if progress_callback:
+        progress_callback("search_pois", None, None)
+
     logger.info("執行搜索周邊地標節點")
 
     hotels = state.get("hotels", [])
@@ -87,13 +124,20 @@ async def search_pois(state: WorkflowState) -> WorkflowState:
     # 檢查錯誤
     if "error" in result:
         new_state["error"] = result["error"]
+        if progress_callback:
+            progress_callback("error", None, result["error"])
 
     return new_state
 
 
-async def generate_initial_response(state: WorkflowState) -> WorkflowState:
+async def generate_initial_response(
+    state: WorkflowState, progress_callback: ProgressCallback | None = None
+) -> WorkflowState:
     """生成初步回應節點"""
-    # TODO: 實現生成初步回應節點
+    # 發送進度訊息
+    if progress_callback:
+        progress_callback("initial_response", None, None)
+
     logger.info("執行生成初步回應節點")
 
     original_query = state.get("original_query", "")
@@ -113,12 +157,21 @@ async def generate_initial_response(state: WorkflowState) -> WorkflowState:
     new_state = state.copy()
     new_state["initial_response"] = initial_response
 
+    # 發送初步回應
+    if progress_callback:
+        progress_callback("initial_response", None, initial_response)
+
     return new_state
 
 
-async def generate_final_response(state: WorkflowState) -> WorkflowState:
+async def generate_final_response(
+    state: WorkflowState, progress_callback: ProgressCallback | None = None
+) -> WorkflowState:
     """生成最終回應節點"""
-    # TODO: 實現生成最終回應節點
+    # 發送進度訊息
+    if progress_callback:
+        progress_callback("final_response", None, None)
+
     logger.info("執行生成最終回應節點")
 
     original_query = state.get("original_query", "")
@@ -137,6 +190,8 @@ async def generate_final_response(state: WorkflowState) -> WorkflowState:
     # 檢查錯誤
     if "error" in result:
         new_state["error"] = result["error"]
+        if progress_callback:
+            progress_callback("error", None, result["error"])
 
     return new_state
 
@@ -184,7 +239,7 @@ workflow = workflow_graph.compile()
 memory_saver = MemorySaver()
 
 
-async def run_workflow(user_query: str) -> dict[str, Any]:
+async def run_workflow(user_query: str, progress_callback: ProgressCallback | None = None) -> dict[str, Any]:
     """運行工作流"""
     # TODO: 實現運行工作流
     logger.info(f"運行工作流，用戶查詢: {user_query}")
@@ -201,12 +256,25 @@ async def run_workflow(user_query: str) -> dict[str, Any]:
         response="",
         initial_response="",
         error="",
+        geo_data=None,
     )
 
+    # 定義回調包裝函數
+    async def node_with_callback(state, node_func):
+        return await node_func(state, progress_callback)
+
     # 運行工作流
-    result = await workflow.ainvoke(
-        initial_state,
-        config={"configurable": {"thread_id": user_query}},
-    )
+    config = {
+        "configurable": {
+            "thread_id": user_query,
+            "parse_query": lambda state: node_with_callback(state, parse_query),
+            "search_hotels": lambda state: node_with_callback(state, search_hotels),
+            "search_pois": lambda state: node_with_callback(state, search_pois),
+            "generate_initial_response": lambda state: node_with_callback(state, generate_initial_response),
+            "generate_final_response": lambda state: node_with_callback(state, generate_final_response),
+        }
+    }
+
+    result = await workflow.ainvoke(initial_state, config=config)
 
     return result

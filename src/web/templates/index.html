@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-TW" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +7,49 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <style>
+        :root {
+            --bg-color: #f8f9fa;
+            --chat-bg: white;
+            --border-color: #dee2e6;
+            --user-msg-bg: #007bff;
+            --user-msg-color: white;
+            --assistant-msg-bg: #e9ecef;
+            --assistant-msg-color: #212529;
+            --system-msg-color: #9ca3af;
+            --input-bg: white;
+            --input-color: #212529;
+            --input-placeholder: #adb5bd;
+            --send-btn-color: #007bff;
+            --typing-bg: #e9ecef;
+            --typing-dot-color: #6c757d;
+            --pre-bg: rgba(0,0,0,0.05);
+            --user-pre-bg: rgba(255,255,255,0.2);
+        }
+        
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --chat-bg: #2a2a2a;
+            --border-color: #444;
+            --user-msg-bg: #0056b3;
+            --user-msg-color: white;
+            --assistant-msg-bg: #3a3a3a;
+            --assistant-msg-color: #e0e0e0;
+            --system-msg-color: #9ca3af;
+            --input-bg: #333;
+            --input-color: #e0e0e0;
+            --input-placeholder: #777;
+            --send-btn-color: #0d6efd;
+            --typing-bg: #3a3a3a;
+            --typing-dot-color: #9ca3af;
+            --pre-bg: rgba(255,255,255,0.1);
+            --user-pre-bg: rgba(255,255,255,0.2);
+        }
+        
         body {
             font-family: 'Microsoft JhengHei', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f8f9fa;
+            background-color: var(--bg-color);
+            color: var(--assistant-msg-color);
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
         .chat-container {
             max-width: 800px;
@@ -19,11 +59,12 @@
         .chat-box {
             height: 500px;
             overflow-y: auto;
-            border: 1px solid #dee2e6;
+            border: 1px solid var(--border-color);
             border-radius: 0.25rem;
             padding: 15px;
-            background-color: white;
+            background-color: var(--chat-bg);
             margin-bottom: 15px;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
         }
         .message {
             margin-bottom: 15px;
@@ -33,20 +74,28 @@
             position: relative;
         }
         .user-message {
-            background-color: #007bff;
-            color: white;
+            background-color: var(--user-msg-bg);
+            color: var(--user-msg-color);
             margin-left: auto;
             border-bottom-right-radius: 5px;
         }
         .assistant-message {
-            background-color: #e9ecef;
-            color: #212529;
+            background-color: var(--assistant-msg-bg);
+            color: var(--assistant-msg-color);
             margin-right: auto;
             border-bottom-left-radius: 5px;
         }
         .message-input {
             border-radius: 20px;
             padding-right: 50px;
+            background-color: var(--input-bg);
+            color: var(--input-color);
+            border-color: var(--border-color);
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+        .message-input::placeholder {
+            color: var(--input-placeholder);
+            opacity: 0.7;
         }
         .send-button {
             position: absolute;
@@ -54,26 +103,29 @@
             top: 5px;
             background: none;
             border: none;
-            color: #007bff;
+            color: var(--send-btn-color);
             font-size: 1.5rem;
+            transition: color 0.3s ease;
         }
         .typing-indicator {
             display: none;
             padding: 10px 15px;
-            background-color: #e9ecef;
+            background-color: var(--typing-bg);
             border-radius: 18px;
             margin-bottom: 15px;
             width: fit-content;
-            color: #6c757d;
+            color: var(--typing-dot-color);
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
         .dot {
             display: inline-block;
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background-color: #6c757d;
+            background-color: var(--typing-dot-color);
             animation: wave 1.3s linear infinite;
             margin-right: 3px;
+            transition: background-color 0.3s ease;
         }
         .dot:nth-child(2) {
             animation-delay: -1.1s;
@@ -90,30 +142,69 @@
             }
         }
         .system-message {
-            text-align: center;
-            color: #6c757d;
+            color: var(--system-msg-color);
             margin: 10px 0;
             font-style: italic;
+            text-align: left;
+            padding: 5px 10px;
+            transition: color 0.3s ease;
         }
         .message pre {
             white-space: pre-wrap;
             margin-top: 10px;
-            background-color: rgba(0,0,0,0.05);
+            background-color: var(--pre-bg);
             padding: 10px;
             border-radius: 5px;
             font-size: 0.9em;
+            transition: background-color 0.3s ease;
         }
         .user-message pre {
-            background-color: rgba(255,255,255,0.2);
+            background-color: var(--user-pre-bg);
+        }
+        .message-time {
+            font-size: 0.75rem;
+            opacity: 0.8;
+            position: absolute;
+            right: 10px;
+            bottom: 5px;
+            white-space: nowrap;
+        }
+        .user-message .message-time {
+            color: rgba(255, 255, 255, 0.8);
+        }
+        .assistant-message .message-time {
+            color: rgba(0, 0, 0, 0.6);
+        }
+        [data-theme="dark"] .assistant-message .message-time {
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: var(--assistant-msg-color);
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+        .theme-toggle:hover {
+            color: var(--send-btn-color);
         }
     </style>
 </head>
 <body>
+    <button class="theme-toggle" id="themeToggle">
+        <i class="bi bi-moon-fill"></i>
+    </button>
+    
     <div class="container mt-4">
         <div class="chat-container">
             <h1 class="text-center mb-4">旅館推薦系統</h1>
             <div class="chat-box" id="chatBox">
-                <div class="system-message">歡迎使用旅館推薦系統！請告訴我您的旅遊需求，例如目的地、日期、人數和預算等。</div>
+                <div class="system-message">您好！請告訴我您想去哪裡旅遊、什麼時候出發、有幾位旅客？</div>
             </div>
             <div class="typing-indicator" id="typingIndicator">
                 <span class="dot"></span>
@@ -121,7 +212,7 @@
                 <span class="dot"></span>
             </div>
             <div class="input-group">
-                <input type="text" class="form-control message-input" id="messageInput" placeholder="請輸入您的旅遊需求...">
+                <input type="text" class="form-control message-input" id="messageInput" placeholder="告訴我您的旅遊計劃，例如：我想下個月去花蓮玩兩天...">
                 <div class="position-relative w-100">
                     <button class="send-button" id="sendButton">
                         <i class="bi bi-send-fill"></i>
@@ -141,6 +232,33 @@
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         const typingIndicator = document.getElementById('typingIndicator');
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+        
+        // 主題切換
+        function toggleTheme() {
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            
+            // 更新圖標
+            themeToggle.innerHTML = newTheme === 'light' 
+                ? '<i class="bi bi-moon-fill"></i>' 
+                : '<i class="bi bi-sun-fill"></i>';
+        }
+        
+        // 初始化主題
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                html.setAttribute('data-theme', savedTheme);
+                themeToggle.innerHTML = savedTheme === 'light' 
+                    ? '<i class="bi bi-moon-fill"></i>' 
+                    : '<i class="bi bi-sun-fill"></i>';
+            }
+        }
         
         // 初始化WebSocket
         function initWebSocket() {
@@ -162,21 +280,60 @@
             // 接收消息時
             socket.onmessage = function(event) {
                 const data = JSON.parse(event.data);
+                console.log('收到消息:', data);  // 調試用
                 
                 // 更新對話ID
                 conversationId = data.conversation_id;
+                
+                // 處理錯誤消息
+                if (data.error) {
+                    // 隱藏打字指示器
+                    typingIndicator.style.display = 'none';
+                    // 顯示錯誤消息
+                    addSystemMessage(`抱歉，發生錯誤: ${data.error}`);
+                    return;
+                }
                 
                 // 處理消息
                 if (!data.is_complete) {
                     // 顯示打字指示器
                     typingIndicator.style.display = 'block';
-                    // 添加初步回應
-                    addMessage(data.message_chunk, 'assistant');
+                    
+                    // 處理漸進式回應
+                    if (data.stage) {
+                        // 如果有階段信息
+                        if (data.stage === 'geo_parse' && data.geo_data) {
+                            // 如果是地理位置解析階段且有地理數據
+                            handleGeoData(data.geo_data);
+                            // 隱藏打字指示器，因為已經顯示了地理位置信息
+                            typingIndicator.style.display = 'none';
+                        } else if (data.message_chunk) {
+                            // 如果有消息內容
+                            handleProgressiveResponse(data.stage, data.message_chunk);
+                        } else {
+                            // 只有階段信息，沒有消息內容
+                            handleStageProgress(data.stage);
+                        }
+                    } else if (data.geo_data) {
+                        // 如果只有地理位置數據，立即顯示
+                        handleGeoData(data.geo_data);
+                        // 隱藏打字指示器，因為已經顯示了地理位置信息
+                        typingIndicator.style.display = 'none';
+                    } else if (data.message_chunk) {
+                        // 添加初步回應
+                        addMessage(data.message_chunk, 'assistant');
+                    }
                 } else {
                     // 隱藏打字指示器
                     typingIndicator.style.display = 'none';
-                    // 添加最終回應
-                    addMessage(data.message_chunk, 'assistant');
+                    
+                    // 如果是最終回應
+                    if (data.final_response) {
+                        addMessage(data.final_response, 'assistant');
+                    } else if (data.message_chunk) {
+                        // 添加最終回應
+                        addMessage(data.message_chunk, 'assistant');
+                    }
                 }
             };
             
@@ -193,6 +350,12 @@
             };
         }
         
+        // 獲取當前時間，格式為 HH:MM:SS
+        function getCurrentTime() {
+            const now = new Date();
+            return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        
         // 添加消息到聊天框
         function addMessage(content, role) {
             // 創建消息元素
@@ -202,8 +365,22 @@
             // 處理可能的Markdown格式
             content = formatMessage(content);
             
-            // 設置消息內容
-            messageDiv.innerHTML = content;
+            // 獲取當前時間
+            const currentTime = getCurrentTime();
+            
+            // 創建內容容器
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.innerHTML = content;
+            
+            // 創建時間顯示元素
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-time';
+            timeDiv.textContent = currentTime;
+            
+            // 添加內容和時間到消息元素
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(timeDiv);
             
             // 添加到聊天框
             chatBox.appendChild(messageDiv);
@@ -219,6 +396,134 @@
             messageDiv.textContent = content;
             chatBox.appendChild(messageDiv);
             chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        
+        // 處理地理位置數據
+        function handleGeoData(geoData) {
+            // 格式化顯示地理位置解析結果
+            let geoMessage = '已確認您想去的地方：';
+            let hasLocation = false;
+            
+            if (geoData.county) {
+                geoMessage += `<br>• ${geoData.county}`;
+                hasLocation = true;
+            }
+            
+            if (geoData.district) {
+                geoMessage += `<br>• ${geoData.district}`;
+                hasLocation = true;
+            }
+            
+            if (geoData.locations && geoData.locations.length > 0) {
+                geoMessage += `<br>• 具體地點：${geoData.locations.join('、')}`;
+                hasLocation = true;
+            }
+            
+            if (hasLocation) {
+                geoMessage += '<br><br>正在為您搜尋這些地方的旅館和周邊景點...';
+                addMessage(geoMessage, 'assistant');
+            } else {
+                // 如果沒有解析到地點，顯示一般進度訊息
+                addSystemMessage('正在分析您的旅遊需求，準備搜尋相關旅館...');
+            }
+        }
+        
+        // 處理階段進度
+        function handleStageProgress(stage) {
+            switch(stage) {
+                case 'parse_query':
+                    addSystemMessage('正在了解您的旅遊需求，請稍候...');
+                    break;
+                case 'geo_parse':
+                    addSystemMessage('正在確認您想去的地方...');
+                    break;
+                case 'search_hotels':
+                    addSystemMessage('正在為您搜尋符合需求的優質旅館，很快就有結果...');
+                    break;
+                case 'search_pois':
+                    addSystemMessage('正在查詢周邊的景點、美食和交通資訊，讓您的旅程更加豐富...');
+                    break;
+                default:
+                    addSystemMessage('正在處理您的請求...');
+            }
+        }
+        
+        // 處理漸進式回應
+        function handleProgressiveResponse(stage, message) {
+            // 根據階段添加適當的系統消息或助手消息
+            switch(stage) {
+                case 'parse_query':
+                    if (typeof message === 'string') {
+                        addMessage(message, 'assistant');
+                    } else {
+                        addSystemMessage('正在了解您的旅遊需求，請稍候...');
+                    }
+                    break;
+                case 'geo_parse':
+                    // 地理位置解析結果
+                    if (message && typeof message === 'object') {
+                        // 如果是JSON對象，格式化顯示地理位置解析結果
+                        let geoMessage = '太好了！我已經了解到您想去的地方：';
+                        
+                        if (message.county) {
+                            geoMessage += `<br>• ${message.county}`;
+                        }
+                        
+                        if (message.district) {
+                            geoMessage += `<br>• ${message.district}`;
+                        }
+                        
+                        if (message.locations && message.locations.length > 0) {
+                            geoMessage += `<br>• 具體地點：${message.locations.join('、')}`;
+                        }
+                        
+                        geoMessage += '<br><br>正在為您尋找這些地方附近的優質住宿...';
+                        
+                        addMessage(geoMessage, 'assistant');
+                    } else if (message) {
+                        // 如果是字符串，直接顯示
+                        addMessage(message, 'assistant');
+                    } else {
+                        addSystemMessage('正在確認您想去的地方，馬上為您推薦附近的好住處...');
+                    }
+                    break;
+                case 'search_hotels':
+                    if (typeof message === 'string') {
+                        addMessage(message, 'assistant');
+                    } else {
+                        addSystemMessage('正在為您搜尋符合需求的優質旅館，很快就有結果...');
+                    }
+                    break;
+                case 'initial_response':
+                    // 初步回應直接顯示為助手消息
+                    addMessage(message, 'assistant');
+                    break;
+                case 'search_pois':
+                    if (typeof message === 'string') {
+                        addMessage(message, 'assistant');
+                    } else {
+                        addSystemMessage('正在查詢周邊的景點、美食和交通資訊，讓您的旅程更加豐富...');
+                    }
+                    break;
+                case 'final_response':
+                    // 最終回應直接顯示為助手消息
+                    addMessage(message, 'assistant');
+                    break;
+                case 'error':
+                    // 錯誤消息
+                    addSystemMessage(`抱歉，發生錯誤: ${message}`);
+                    break;
+                default:
+                    // 其他階段消息
+                    if (message) {
+                        if (typeof message === 'object') {
+                            // 如果是JSON對象，轉換為字符串
+                            addMessage(JSON.stringify(message, null, 2), 'assistant');
+                        } else {
+                            addMessage(message, 'assistant');
+                        }
+                    }
+            }
         }
         
         // 格式化消息（簡單的Markdown支持）
@@ -287,8 +592,11 @@
             }
         });
         
+        themeToggle.addEventListener('click', toggleTheme);
+        
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
+            initTheme();
             initWebSocket();
         });
     </script>

@@ -168,3 +168,6 @@ class StreamChatResponse(BaseModel):
     message_chunk: str = Field(..., description="助手回覆片段")
     conversation_id: str = Field(..., description="對話ID")
     is_complete: bool = Field(..., description="是否為完整回覆")
+    stage: str | None = Field(None, description="處理階段，如'parse_query', 'geo_parse', 'search_hotels'等")
+    geo_data: dict | None = Field(None, description="地理位置數據")
+    error: str | None = Field(None, description="錯誤信息")
