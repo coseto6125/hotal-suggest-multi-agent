@@ -9,7 +9,6 @@ from typing import Any
 from loguru import logger
 
 from src.agents.base_sub_agent import BaseSubAgent
-from src.services.llm_service import llm_service
 
 
 class DateParserAgent(BaseSubAgent):
@@ -37,17 +36,6 @@ class DateParserAgent(BaseSubAgent):
         # 嘗試使用正則表達式解析日期
         dates = self._extract_dates_with_regex(query)
 
-        # 如果正則表達式無法解析，使用LLM解析
-        if not dates.get("check_in") or not dates.get("check_out"):
-            llm_dates = await self._extract_dates_with_llm(query)
-
-            # 合併結果，優先使用正則表達式解析的結果
-            if not dates.get("check_in") and llm_dates.get("check_in"):
-                dates["check_in"] = llm_dates["check_in"]
-
-            if not dates.get("check_out") and llm_dates.get("check_out"):
-                dates["check_out"] = llm_dates["check_out"]
-
         # 如果仍然無法解析，嘗試根據上下文推斷
         if not dates.get("check_in") or not dates.get("check_out"):
             inferred_dates = self._infer_dates(query)
@@ -58,6 +46,17 @@ class DateParserAgent(BaseSubAgent):
 
             if not dates.get("check_out") and inferred_dates.get("check_out"):
                 dates["check_out"] = inferred_dates["check_out"]
+
+        # 如果仍然無法解析，使用LLM解析
+        if not dates.get("check_in") or not dates.get("check_out"):
+            llm_dates = await self._extract_dates_with_llm(query)
+
+            # 合併結果，優先使用正則表達式解析的結果
+            if not dates.get("check_in") and llm_dates.get("check_in"):
+                dates["check_in"] = llm_dates["check_in"]
+
+            if not dates.get("check_out") and llm_dates.get("check_out"):
+                dates["check_out"] = llm_dates["check_out"]
 
         # 驗證日期的有效性
         self._validate_dates(dates)
@@ -120,22 +119,16 @@ class DateParserAgent(BaseSubAgent):
         }
         """
 
-        messages = [{"role": "user", "content": f"從以下查詢中提取入住日期和退房日期：{query}"}]
-        response = await llm_service.generate_response(messages, system_prompt)
+        user_message_template = "從以下查詢中提取入住日期和退房日期：{query}"
+        default_value = {"check_in": None, "check_out": None}
 
-        try:
-            # 使用正則表達式提取JSON
-            json_pattern = re.compile(r"{.*}", re.DOTALL)
-            match = json_pattern.search(response)
-            if match:
-                import orjson
-
-                dates = orjson.loads(match.group(0))
-                return dates
-        except Exception as e:
-            logger.error(f"LLM日期解析失敗: {e!s}")
-
-        return {"check_in": None, "check_out": None}
+        # 使用共用方法提取日期
+        return await self._extract_with_llm(
+            query=query,
+            system_prompt=system_prompt,
+            user_message_template=user_message_template,
+            default_value=default_value,
+        )
 
     def _infer_dates(self, query: str) -> dict[str, str]:
         """根據查詢內容推斷日期"""
@@ -157,10 +150,7 @@ class DateParserAgent(BaseSubAgent):
         elif "這週末" in query or "這個週末" in query:
             # 計算到本週六的天數
             days_until_saturday = (5 - today.weekday()) % 7
-            if days_until_saturday == 0:  # 如果今天是週六
-                saturday = today
-            else:
-                saturday = today + timedelta(days=days_until_saturday)
+            saturday = today if days_until_saturday == 0 else today + timedelta(days=days_until_saturday)
             sunday = saturday + timedelta(days=1)
 
             dates["check_in"] = saturday.strftime("%Y-%m-%d")

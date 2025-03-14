@@ -8,7 +8,6 @@ from typing import Any
 from loguru import logger
 
 from src.agents.base_sub_agent import BaseSubAgent
-from src.services.llm_service import llm_service
 
 
 class BudgetParserAgent(BaseSubAgent):
@@ -125,22 +124,16 @@ class BudgetParserAgent(BaseSubAgent):
         }
         """
 
-        messages = [{"role": "user", "content": f"從以下查詢中提取預算範圍：{query}"}]
-        response = await llm_service.generate_response(messages, system_prompt)
+        user_message_template = "從以下查詢中提取預算範圍：{query}"
+        default_value = {"min": None, "max": None}
 
-        try:
-            # 使用正則表達式提取JSON
-            json_pattern = re.compile(r"{.*}", re.DOTALL)
-            match = json_pattern.search(response)
-            if match:
-                import orjson
-
-                budget = orjson.loads(match.group(0))
-                return budget
-        except Exception as e:
-            logger.error(f"LLM預算解析失敗: {e!s}")
-
-        return {"min": None, "max": None}
+        # 使用共用方法提取預算
+        return await self._extract_with_llm(
+            query=query,
+            system_prompt=system_prompt,
+            user_message_template=user_message_template,
+            default_value=default_value,
+        )
 
     def _validate_budget(self, budget: dict[str, int]) -> None:
         """驗證預算的有效性"""

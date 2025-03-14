@@ -8,7 +8,6 @@ from typing import Any
 from loguru import logger
 
 from src.agents.base_sub_agent import BaseSubAgent
-from src.services.llm_service import llm_service
 
 
 class HotelTypeParserAgent(BaseSubAgent):
@@ -97,24 +96,33 @@ class HotelTypeParserAgent(BaseSubAgent):
         請直接返回類型代碼，不要添加任何其他內容。
         """
 
-        messages = [{"role": "user", "content": f"從以下查詢中提取旅館類型：{query}"}]
-        response = await llm_service.generate_response(messages, system_prompt)
+        user_message_template = "從以下查詢中提取旅館類型：{query}"
 
-        # 清理回應
-        response = response.strip().upper()
+        # 使用共用方法提取旅館類型
+        response = await self._extract_with_llm(
+            query=query, system_prompt=system_prompt, user_message_template=user_message_template, default_value=""
+        )
 
-        # 檢查回應是否為有效的類型
-        if response in self.hotel_type_keywords:
-            logger.info(f"LLM解析到旅館類型: {response}")
-            return response
+        # 如果回應是字符串，進行處理
+        if isinstance(response, str):
+            # 清理回應
+            response = response.strip().upper()
 
-        # 如果不是有效類型，嘗試從回應中提取有效類型
-        for hotel_type in self.hotel_type_keywords:
-            if hotel_type in response:
-                logger.info(f"從LLM回應中提取到旅館類型: {hotel_type}")
-                return hotel_type
+            # 檢查回應是否為有效的類型
+            if response in self.hotel_type_keywords:
+                logger.info(f"LLM解析到旅館類型: {response}")
+                return response
 
-        logger.warning(f"LLM回應不包含有效的旅館類型: {response}")
+            # 如果不是有效類型，嘗試從回應中提取有效類型
+            for hotel_type in self.hotel_type_keywords:
+                if hotel_type in response:
+                    logger.info(f"從LLM回應中提取到旅館類型: {hotel_type}")
+                    return hotel_type
+
+            logger.warning(f"LLM回應不包含有效的旅館類型: {response}")
+        else:
+            logger.warning(f"LLM回應格式不正確: {response}")
+
         return ""
 
 
