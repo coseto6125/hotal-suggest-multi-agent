@@ -13,9 +13,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
+from src.cache.geo_cache import geo_cache
 from src.config import config
 from src.graph.workflow import run_workflow
 from src.models.schemas import ChatRequest, ChatResponse, StreamChatResponse
+from src.utils.geo_parser import geo_parser
 
 # 創建FastAPI應用
 app = FastAPI(title="旅館推薦系統", description="旅館推薦 Multi-Agent Chatbot 系統", version="1.0.0")
@@ -31,6 +33,21 @@ active_connections: dict[str, WebSocket] = {}
 
 # 存儲對話歷史
 conversation_history: dict[str, list[dict[str, Any]]] = {}
+
+
+@app.on_event("startup")
+async def startup_event():
+    """應用啟動時執行的事件"""
+    logger.info("初始化應用...")
+
+    # 初始化地理資料快取
+    await geo_cache.initialize()
+
+    # 預先載入 spaCy 中文模型
+    await geo_parser.preload_model()
+
+    # 初始化地理名稱解析器
+    await geo_parser.initialize()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -201,10 +218,8 @@ async def websocket_chat(websocket: WebSocket, conversation_id: str):
                 )
     except WebSocketDisconnect:
         # 移除WebSocket連接
-        if conversation_id in active_connections:
-            del active_connections[conversation_id]
+        active_connections.pop(conversation_id, None)
     except Exception as e:
         logger.error(f"WebSocket連接發生錯誤: {e!s}")
         # 移除WebSocket連接
-        if conversation_id in active_connections:
-            del active_connections[conversation_id]
+        active_connections.pop(conversation_id, None)
