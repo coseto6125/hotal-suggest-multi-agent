@@ -5,6 +5,9 @@
 import asyncio
 import unittest
 from datetime import datetime, timedelta
+from unittest.mock import patch
+
+import pytest
 
 from src.agents.date_parser_agent import DateParserAgent
 
@@ -136,54 +139,114 @@ class TestDateParserAgent(unittest.TestCase):
         self.agent._validate_dates(dates)
         self.assertEqual(dates["check_out"], (tomorrow + timedelta(days=1)).strftime("%Y-%m-%d"))
 
-    async def _async_test_extract_dates_with_llm(self):
-        """測試使用LLM解析日期（異步測試輔助方法）"""
-        # 測試使用LLM解析日期
-        test_cases = ["我想下週入住", "這個週末有空房嗎", "下個月初想訂房"]
+    @patch("src.services.duckling_service.duckling_service.extract_dates")
+    async def _async_test_extract_dates_with_duckling(self, mock_extract_dates):
+        """測試使用 Duckling 服務解析日期（異步測試輔助方法）"""
+        # 設置 mock 返回值
+        test_cases = [
+            {
+                "query": f"我想在{self.future_date1}入住，{self.future_date2}退房",
+                "expected": {"check_in": self.future_date1, "check_out": self.future_date2},
+            },
+            {
+                "query": "明天有空房嗎",
+                "expected": {
+                    "check_in": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
+                    "check_out": (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d"),
+                },
+            },
+            {
+                "query": "下週想訂房",
+                "expected": {
+                    "check_in": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"),
+                    "check_out": (datetime.now() + timedelta(days=9)).strftime("%Y-%m-%d"),
+                },
+            },
+        ]
 
-        for query in test_cases:
-            result = await self.agent._extract_dates_with_llm(query)
-            # 由於LLM結果可能會變化，我們只檢查返回格式是否正確
-            self.assertIn("check_in", result)
-            self.assertIn("check_out", result)
+        for test_case in test_cases:
+            query = test_case["query"]
+            expected = test_case["expected"]
 
-            # 如果有返回日期，檢查格式是否正確
-            if result["check_in"]:
-                datetime.strptime(result["check_in"], "%Y-%m-%d")
-            if result["check_out"]:
-                datetime.strptime(result["check_out"], "%Y-%m-%d")
+            # 設置 mock 返回值
+            mock_extract_dates.return_value = expected
 
-    def test_extract_dates_with_llm(self):
-        """測試使用LLM解析日期（同步包裝）"""
-        # 跳過此測試，因為它需要實際調用LLM服務
-        self.skipTest("此測試需要實際調用LLM服務，跳過")
-        # 如果需要運行，取消下面的註釋
-        # self.loop.run_until_complete(self._async_test_extract_dates_with_llm())
-
-    async def _async_test_process_query(self):
-        """測試處理查詢（異步測試輔助方法）"""
-        # 測試完整的查詢處理流程
-        test_cases = [f"我想在{self.future_date1}入住，{self.future_date2}退房", "明天有空房嗎", "下週想訂房"]
-
-        for query in test_cases:
+            # 執行測試
             result = await self.agent._process_query(query, {})
-            self.assertIn("dates", result)
-            dates = result["dates"]
-            self.assertIn("check_in", dates)
-            self.assertIn("check_out", dates)
 
-            # 檢查日期格式是否正確
-            if dates["check_in"]:
-                datetime.strptime(dates["check_in"], "%Y-%m-%d")
-            if dates["check_out"]:
-                datetime.strptime(dates["check_out"], "%Y-%m-%d")
+            # 驗證 duckling_service.extract_dates 被正確調用
+            mock_extract_dates.assert_called_with(query)
 
-    def test_process_query(self):
-        """測試處理查詢（同步包裝）"""
-        # 跳過此測試，因為它可能需要調用LLM服務
-        self.skipTest("此測試可能需要調用LLM服務，跳過")
-        # 如果需要運行，取消下面的註釋
-        # self.loop.run_until_complete(self._async_test_process_query())
+            # 驗證結果
+            self.assertEqual(result["dates"], expected)
+
+    @pytest.mark.asyncio
+    def test_extract_dates_with_duckling(self):
+        """測試使用 Duckling 服務解析日期（同步包裝）"""
+        self.loop.run_until_complete(self._async_test_extract_dates_with_duckling())
+
+    @patch("src.services.duckling_service.duckling_service.extract_dates")
+    @patch("src.agents.date_parser_agent.DateParserAgent._extract_dates_with_regex")
+    async def _async_test_process_query_with_duckling_failure(self, mock_extract_dates_with_regex, mock_extract_dates):
+        """測試當 Duckling 服務失敗時的處理（異步測試輔助方法）"""
+        # 模擬 Duckling 服務失敗
+        mock_extract_dates.side_effect = Exception("Duckling 服務連接失敗")
+
+        # 模擬正則表達式解析結果
+        expected_dates = {"check_in": self.future_date1, "check_out": self.future_date2}
+        mock_extract_dates_with_regex.return_value = expected_dates
+
+        # 測試案例
+        query = f"我想在{self.future_date1}入住，{self.future_date2}退房"
+
+        # 執行測試
+        result = await self.agent._process_query(query, {})
+
+        # 驗證 duckling_service.extract_dates 被正確調用
+        mock_extract_dates.assert_called_with(query)
+
+        # 驗證 _extract_dates_with_regex 被正確調用
+        mock_extract_dates_with_regex.assert_called_with(query)
+
+        # 驗證結果 - 應該回退到正則表達式解析
+        self.assertEqual(result["dates"], expected_dates)
+
+    @pytest.mark.asyncio
+    def test_process_query_with_duckling_failure(self):
+        """測試當 Duckling 服務失敗時的處理（同步包裝）"""
+        self.loop.run_until_complete(self._async_test_process_query_with_duckling_failure())
+
+    @patch("src.services.duckling_service.duckling_service.extract_dates")
+    @patch("src.agents.date_parser_agent.DateParserAgent._extract_dates_with_regex")
+    async def _async_test_process_query_with_duckling_empty(self, mock_extract_dates_with_regex, mock_extract_dates):
+        """測試當 Duckling 服務返回空結果時的處理（異步測試輔助方法）"""
+        # 模擬 Duckling 服務返回空結果
+        mock_extract_dates.return_value = {"check_in": None, "check_out": None}
+
+        # 模擬正則表達式解析結果
+        expected_dates = {"check_in": self.future_date1, "check_out": self.future_date2}
+        mock_extract_dates_with_regex.return_value = expected_dates
+
+        # 測試案例
+        query = f"我想在{self.future_date1}入住，{self.future_date2}退房"
+
+        # 執行測試
+        result = await self.agent._process_query(query, {})
+
+        # 驗證 duckling_service.extract_dates 被正確調用
+        mock_extract_dates.assert_called_with(query)
+
+        # 驗證 _extract_dates_with_regex 被正確調用
+        mock_extract_dates_with_regex.assert_called_with(query)
+
+        # 驗證結果 - 應該回退到正則表達式解析
+        self.assertEqual(result["dates"]["check_in"], expected_dates["check_in"])
+        self.assertEqual(result["dates"]["check_out"], expected_dates["check_out"])
+
+    @pytest.mark.asyncio
+    def test_process_query_with_duckling_empty(self):
+        """測試當 Duckling 服務返回空結果時的處理（同步包裝）"""
+        self.loop.run_until_complete(self._async_test_process_query_with_duckling_empty())
 
     def test_integration(self):
         """集成測試：測試各種日期表達方式的解析"""

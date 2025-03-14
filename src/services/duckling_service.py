@@ -3,6 +3,7 @@ Duckling 服務模組，用於處理結構化數據解析
 """
 
 import json
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
@@ -109,6 +110,63 @@ class DucklingService:
             budget["max"] = int(max(amounts))
 
         return budget
+
+    async def extract_dates(self, text: str) -> dict[str, str | None]:
+        """
+        從文本中提取日期信息
+
+        Args:
+            text: 要解析的文本
+
+        Returns:
+            包含入住和退房日期的字典 {"check_in": check_in_date, "check_out": check_out_date}
+        """
+        dates = {"check_in": None, "check_out": None}
+
+        # 解析日期
+        results = await self.parse(text, dimensions=["time"])
+
+        if not results:
+            return dates
+
+        # 處理解析結果
+        all_dates = []
+        for result in results:
+            if result.get("dim") == "time":
+                value = result.get("value", {})
+
+                # 優先使用 value.value，這通常是標準化的日期時間
+                if "value" in value:
+                    date_str = value["value"].split("T")[0]  # 只取日期部分
+                    all_dates.append(date_str)
+                # 如果沒有 value.value，嘗試使用 value.from
+                elif "from" in value:
+                    date_str = value["from"].get("value", "").split("T")[0]
+                    if date_str:
+                        all_dates.append(date_str)
+                # 如果有 value.to，也加入
+                if "to" in value:
+                    date_str = value["to"].get("value", "").split("T")[0]
+                    if date_str:
+                        all_dates.append(date_str)
+
+        # 根據找到的日期設置入住和退房日期
+        if all_dates:
+            # 去除重複日期並排序
+            unique_dates = sorted(list(set(all_dates)))
+
+            if len(unique_dates) >= 2:
+                # 如果找到至少兩個日期，假設第一個是入住日期，第二個是退房日期
+                dates["check_in"] = unique_dates[0]
+                dates["check_out"] = unique_dates[1]
+            elif len(unique_dates) == 1:
+                # 如果只找到一個日期，假設是入住日期，退房日期為入住日期後的第二天
+                dates["check_in"] = unique_dates[0]
+                check_in_date = datetime.strptime(unique_dates[0], "%Y-%m-%d")
+                check_out_date = check_in_date + timedelta(days=1)
+                dates["check_out"] = check_out_date.strftime("%Y-%m-%d")
+
+        return dates
 
 
 # 創建 Duckling 服務實例

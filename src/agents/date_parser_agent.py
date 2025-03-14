@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from src.agents.base_sub_agent import BaseSubAgent
+from src.services.duckling_service import duckling_service
 
 
 class DateParserAgent(BaseSubAgent):
@@ -33,30 +34,44 @@ class DateParserAgent(BaseSubAgent):
         """處理查詢中的旅遊日期"""
         logger.info(f"解析查詢中的旅遊日期: {query}")
 
-        # 嘗試使用正則表達式解析日期
-        dates = self._extract_dates_with_regex(query)
+        # 使用 Duckling 服務提取日期
+        try:
+            dates = await duckling_service.extract_dates(query)
 
-        # 如果仍然無法解析，嘗試根據上下文推斷
-        if not dates.get("check_in") or not dates.get("check_out"):
-            inferred_dates = self._infer_dates(query)
+            # 如果 Duckling 無法解析，嘗試使用正則表達式解析日期
+            if not dates.get("check_in") or not dates.get("check_out"):
+                regex_dates = self._extract_dates_with_regex(query)
 
-            # 合併結果，優先使用已解析的結果
-            if not dates.get("check_in") and inferred_dates.get("check_in"):
-                dates["check_in"] = inferred_dates["check_in"]
+                # 合併結果，優先使用 Duckling 解析的結果
+                if not dates.get("check_in") and regex_dates.get("check_in"):
+                    dates["check_in"] = regex_dates["check_in"]
 
-            if not dates.get("check_out") and inferred_dates.get("check_out"):
-                dates["check_out"] = inferred_dates["check_out"]
+                if not dates.get("check_out") and regex_dates.get("check_out"):
+                    dates["check_out"] = regex_dates["check_out"]
 
-        # 如果仍然無法解析，使用LLM解析
-        if not dates.get("check_in") or not dates.get("check_out"):
-            llm_dates = await self._extract_dates_with_llm(query)
+            # 如果仍然無法解析，嘗試根據上下文推斷
+            if not dates.get("check_in") or not dates.get("check_out"):
+                inferred_dates = self._infer_dates(query)
 
-            # 合併結果，優先使用正則表達式解析的結果
-            if not dates.get("check_in") and llm_dates.get("check_in"):
-                dates["check_in"] = llm_dates["check_in"]
+                # 合併結果，優先使用已解析的結果
+                if not dates.get("check_in") and inferred_dates.get("check_in"):
+                    dates["check_in"] = inferred_dates["check_in"]
 
-            if not dates.get("check_out") and llm_dates.get("check_out"):
-                dates["check_out"] = llm_dates["check_out"]
+                if not dates.get("check_out") and inferred_dates.get("check_out"):
+                    dates["check_out"] = inferred_dates["check_out"]
+        except Exception as e:
+            logger.error(f"使用 Duckling 服務提取日期時發生錯誤: {e}")
+            # 如果 Duckling 服務失敗，回退到正則表達式和推斷方法
+            dates = self._extract_dates_with_regex(query)
+
+            if not dates.get("check_in") or not dates.get("check_out"):
+                inferred_dates = self._infer_dates(query)
+
+                if not dates.get("check_in") and inferred_dates.get("check_in"):
+                    dates["check_in"] = inferred_dates["check_in"]
+
+                if not dates.get("check_out") and inferred_dates.get("check_out"):
+                    dates["check_out"] = inferred_dates["check_out"]
 
         # 驗證日期的有效性
         self._validate_dates(dates)
@@ -83,7 +98,7 @@ class DateParserAgent(BaseSubAgent):
                         date_str = f"{current_year:04d}-{month:02d}-{day:02d}"
 
                     # 驗證日期有效性
-                    datetime.strptime(date_str, "%Y-%m-%d")
+                    datetime.strptime(date_str, "%Y-%m-%d%z")
                     all_dates.append(date_str)
                 except (ValueError, IndexError):
                     continue
@@ -97,38 +112,11 @@ class DateParserAgent(BaseSubAgent):
         elif len(all_dates) == 1:
             # 如果只找到一個日期，假設是入住日期，退房日期為入住日期後的第二天
             dates["check_in"] = all_dates[0]
-            check_in_date = datetime.strptime(all_dates[0], "%Y-%m-%d")
+            check_in_date = datetime.strptime(all_dates[0], "%Y-%m-%d%z")
             check_out_date = check_in_date + timedelta(days=1)
             dates["check_out"] = check_out_date.strftime("%Y-%m-%d")
 
         return dates
-
-    async def _extract_dates_with_llm(self, query: str) -> dict[str, str]:
-        """使用LLM從查詢中提取日期"""
-        system_prompt = """
-        你是一個旅館預訂系統的日期解析器。
-        你的任務是從用戶的自然語言查詢中提取入住日期和退房日期。
-        請以YYYY-MM-DD格式返回日期。
-        如果查詢中沒有明確提到日期，但有提到相對時間（如"下週"、"這個週末"等），請根據當前日期推斷具體日期。
-        如果查詢中完全沒有提到日期或相對時間，請返回null。
-        
-        請以JSON格式返回結果，格式如下：
-        {
-            "check_in": "YYYY-MM-DD",
-            "check_out": "YYYY-MM-DD"
-        }
-        """
-
-        user_message_template = "從以下查詢中提取入住日期和退房日期：{query}"
-        default_value = {"check_in": None, "check_out": None}
-
-        # 使用共用方法提取日期
-        return await self._extract_with_llm(
-            query=query,
-            system_prompt=system_prompt,
-            user_message_template=user_message_template,
-            default_value=default_value,
-        )
 
     def _infer_dates(self, query: str) -> dict[str, str]:
         """根據查詢內容推斷日期"""
@@ -176,7 +164,7 @@ class DateParserAgent(BaseSubAgent):
         # 檢查入住日期
         if dates.get("check_in"):
             try:
-                check_in_date = datetime.strptime(dates["check_in"], "%Y-%m-%d").date()
+                check_in_date = datetime.strptime(dates["check_in"], "%Y-%m-%d%z").date()
 
                 # 入住日期不能早於今天
                 if check_in_date < today:
@@ -189,11 +177,11 @@ class DateParserAgent(BaseSubAgent):
         # 檢查退房日期
         if dates.get("check_out"):
             try:
-                check_out_date = datetime.strptime(dates["check_out"], "%Y-%m-%d").date()
+                check_out_date = datetime.strptime(dates["check_out"], "%Y-%m-%d%z").date()
 
                 # 如果有入住日期，退房日期必須晚於入住日期
                 if dates.get("check_in"):
-                    check_in_date = datetime.strptime(dates["check_in"], "%Y-%m-%d").date()
+                    check_in_date = datetime.strptime(dates["check_in"], "%Y-%m-%d%z").date()
                     if check_out_date <= check_in_date:
                         logger.warning(
                             f"退房日期 {dates['check_out']} 不晚於入住日期 {dates['check_in']}，設置為入住日期後一天"
