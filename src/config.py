@@ -45,7 +45,7 @@ class DucklingConfig(BaseModel):
     """Duckling 配置"""
 
     enabled: bool = os.getenv("DUCKLING_ENABLED", "true").lower() == "true"
-    base_url: str = os.getenv("DUCKLING_BASE_URL", "http://localhost:8000")
+    base_url: str = os.getenv("DUCKLING_BASE_URL", "http://localhost:6579")
     locale: str = os.getenv("DUCKLING_LOCALE", "zh_TW")
     timeout: int = int(os.getenv("DUCKLING_TIMEOUT", "30"))
 

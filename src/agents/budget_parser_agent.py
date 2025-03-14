@@ -16,10 +16,20 @@ class BudgetParserAgent(BaseSubAgent):
     def __init__(self):
         """初始化預算解析子Agent"""
         super().__init__("BudgetParserAgent")
+        self._initialized = False
+
+    async def _ensure_initialized(self) -> None:
+        """確保 Duckling 服務已初始化"""
+        if not self._initialized:
+            await duckling_service.initialize()
+            self._initialized = True
 
     async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的預算範圍"""
         logger.info(f"解析查詢中的字串: {query}")
+
+        # 確保 Duckling 服務已初始化
+        await self._ensure_initialized()
 
         # 使用 Duckling 服務提取預算
         try:

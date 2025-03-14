@@ -2,7 +2,6 @@
 測試預算解析子Agent
 """
 
-import unittest
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 
@@ -135,7 +134,3 @@ class TestBudgetParserAgent(IsolatedAsyncioTestCase):
 
         # 驗證結果 - 應該返回空預算
         assert result["budget"] == {"min": None, "max": None}
-
-
-if __name__ == "__main__":
-    unittest.main()
