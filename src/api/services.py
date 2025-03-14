@@ -10,16 +10,13 @@ class HotelAPIService:
 
     async def get_counties(self) -> list:
         """獲取縣市列表"""
-        # TODO: 實現獲取縣市列表的API調用
         endpoint = "/api/v3/tools/interview_test/taiwan_hotels/counties"
         return await api_client.get(endpoint)
 
-    async def get_districts(self, county_id: str | None = None) -> list:
+    async def get_districts(self) -> list:
         """獲取鄉鎮區列表"""
-        # TODO: 實現獲取鄉鎮區列表的API調用
         endpoint = "/api/v3/tools/interview_test/taiwan_hotels/districts"
-        params = {"county_id": county_id} if county_id else None
-        return await api_client.get(endpoint, params)
+        return await api_client.get(endpoint)
 
     async def get_hotel_types(self) -> list:
         """獲取旅館類型列表"""
