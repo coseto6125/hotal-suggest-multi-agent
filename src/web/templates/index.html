@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>旅館推薦系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        body {
+            font-family: 'Microsoft JhengHei', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+        }
+        .chat-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .chat-box {
+            height: 500px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            padding: 15px;
+            background-color: white;
+            margin-bottom: 15px;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 18px;
+            max-width: 80%;
+            position: relative;
+        }
+        .user-message {
+            background-color: #007bff;
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 5px;
+        }
+        .assistant-message {
+            background-color: #e9ecef;
+            color: #212529;
+            margin-right: auto;
+            border-bottom-left-radius: 5px;
+        }
+        .message-input {
+            border-radius: 20px;
+            padding-right: 50px;
+        }
+        .send-button {
+            position: absolute;
+            right: 10px;
+            top: 5px;
+            background: none;
+            border: none;
+            color: #007bff;
+            font-size: 1.5rem;
+        }
+        .typing-indicator {
+            display: none;
+            padding: 10px 15px;
+            background-color: #e9ecef;
+            border-radius: 18px;
+            margin-bottom: 15px;
+            width: fit-content;
+            color: #6c757d;
+        }
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            animation: wave 1.3s linear infinite;
+            margin-right: 3px;
+        }
+        .dot:nth-child(2) {
+            animation-delay: -1.1s;
+        }
+        .dot:nth-child(3) {
+            animation-delay: -0.9s;
+        }
+        @keyframes wave {
+            0%, 60%, 100% {
+                transform: initial;
+            }
+            30% {
+                transform: translateY(-5px);
+            }
+        }
+        .system-message {
+            text-align: center;
+            color: #6c757d;
+            margin: 10px 0;
+            font-style: italic;
+        }
+        .message pre {
+            white-space: pre-wrap;
+            margin-top: 10px;
+            background-color: rgba(0,0,0,0.05);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+        .user-message pre {
+            background-color: rgba(255,255,255,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="chat-container">
+            <h1 class="text-center mb-4">旅館推薦系統</h1>
+            <div class="chat-box" id="chatBox">
+                <div class="system-message">歡迎使用旅館推薦系統！請告訴我您的旅遊需求，例如目的地、日期、人數和預算等。</div>
+            </div>
+            <div class="typing-indicator" id="typingIndicator">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+            <div class="input-group">
+                <input type="text" class="form-control message-input" id="messageInput" placeholder="請輸入您的旅遊需求...">
+                <div class="position-relative w-100">
+                    <button class="send-button" id="sendButton">
+                        <i class="bi bi-send-fill"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局變量
+        let conversationId = null;
+        let socket = null;
+        
+        // DOM元素
+        const chatBox = document.getElementById('chatBox');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const typingIndicator = document.getElementById('typingIndicator');
+        
+        // 初始化WebSocket
+        function initWebSocket() {
+            // 關閉現有連接
+            if (socket) {
+                socket.close();
+            }
+            
+            // 創建新連接
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat/${conversationId || 'new'}`;
+            socket = new WebSocket(wsUrl);
+            
+            // 連接打開時
+            socket.onopen = function(e) {
+                console.log('WebSocket連接已建立');
+            };
+            
+            // 接收消息時
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                // 更新對話ID
+                conversationId = data.conversation_id;
+                
+                // 處理消息
+                if (!data.is_complete) {
+                    // 顯示打字指示器
+                    typingIndicator.style.display = 'block';
+                    // 添加初步回應
+                    addMessage(data.message_chunk, 'assistant');
+                } else {
+                    // 隱藏打字指示器
+                    typingIndicator.style.display = 'none';
+                    // 添加最終回應
+                    addMessage(data.message_chunk, 'assistant');
+                }
+            };
+            
+            // 連接關閉時
+            socket.onclose = function(event) {
+                console.log('WebSocket連接已關閉');
+                // 可以在這裡添加重連邏輯
+            };
+            
+            // 連接錯誤時
+            socket.onerror = function(error) {
+                console.error('WebSocket錯誤:', error);
+                addSystemMessage('連接錯誤，請刷新頁面重試。');
+            };
+        }
+        
+        // 添加消息到聊天框
+        function addMessage(content, role) {
+            // 創建消息元素
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}-message`;
+            
+            // 處理可能的Markdown格式
+            content = formatMessage(content);
+            
+            // 設置消息內容
+            messageDiv.innerHTML = content;
+            
+            // 添加到聊天框
+            chatBox.appendChild(messageDiv);
+            
+            // 滾動到底部
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        
+        // 添加系統消息
+        function addSystemMessage(content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'system-message';
+            messageDiv.textContent = content;
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        
+        // 格式化消息（簡單的Markdown支持）
+        function formatMessage(content) {
+            // 處理代碼塊
+            content = content.replace(/```([^`]+)```/g, '<pre>$1</pre>');
+            
+            // 處理粗體
+            content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            
+            // 處理斜體
+            content = content.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            
+            // 處理換行
+            content = content.replace(/\n/g, '<br>');
+            
+            return content;
+        }
+        
+        // 發送消息
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            
+            if (!message) {
+                return;
+            }
+            
+            // 添加用戶消息到聊天框
+            addMessage(message, 'user');
+            
+            // 清空輸入框
+            messageInput.value = '';
+            
+            // 顯示打字指示器
+            typingIndicator.style.display = 'block';
+            
+            // 發送消息到服務器
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    message: message
+                }));
+            } else {
+                // 如果WebSocket未連接，嘗試重新連接
+                initWebSocket();
+                
+                // 等待連接建立後發送消息
+                setTimeout(() => {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            message: message
+                        }));
+                    } else {
+                        addSystemMessage('無法連接到服務器，請刷新頁面重試。');
+                        typingIndicator.style.display = 'none';
+                    }
+                }, 1000);
+            }
+        }
+        
+        // 事件監聽器
+        sendButton.addEventListener('click', sendMessage);
+        
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initWebSocket();
+        });
+    </script>
+</body>
+</html> 

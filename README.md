@@ -1,112 +1,224 @@
 # 旅館推薦 Multi-Agent Chatbot 系統
 
-## 項目概述
+基於LangGraph的旅館推薦多Agent系統，為用戶提供旅遊住宿與周邊探索的整合解決方案。
 
-本項目是一個基於 Multi-Agent 架構的旅館推薦聊天機器人系統，旨在為用戶提供旅遊住宿與周邊探索的整合解決方案。
-系統能夠在 5 秒內回應用戶的初步查詢，並在 30 秒內提供完整建議。
+## 系統架構
 
-## 技術架構
+本系統採用LangGraph框架實現多Agent協作，主要包含以下組件：
 
-目前正在評估以下 Multi-Agent 框架，以選擇最適合的技術方案：
+1. **查詢解析Agent**：負責解析用戶的自然語言查詢，提取關鍵參數。
+2. **旅館搜索Agent**：負責根據解析後的參數搜索符合條件的旅館。
+3. **周邊地標搜索Agent**：負責搜索旅館周邊的景點、餐廳和交通信息。
+4. **回應生成Agent**：負責整合所有信息，生成最終的回應。
+5. **地理資料快取**：存儲台灣縣市鄉鎮等地理資料，加速查詢解析過程。
 
-- LangGraph
-- LlamaIndex
-- CrewAI
-- Swarms
-
-這些框架將結合 aiohttp 進行非同步 API 請求，以實現高效的並行處理和資源調度。
-
-### 主要特點
-
-- 快速響應：系統在 5 秒內提供初步回應
-- 漸進式結果展示：在完整結果準備好之前提供即時反饋
-- 多 Agent 協作：各 Agent 負責不同任務，協同工作提供完整解決方案
-- 容錯機制：處理 API 請求失敗和超時情況
-
-## 項目結構
-
-```plaintext
-.
-├── README.md                 # 項目說明文檔
-├── requirements.txt          # 依賴包列表
-├── main.py                   # 主程序入口
-├── config.py                 # 配置文件
-├── agents/                   # Agent 定義
-│   ├── __init__.py
-│   ├── coordinator.py        # 協調者 Agent
-│   ├── hotel_agent.py        # 旅館推薦 Agent
-│   ├── poi_agent.py          # 周邊景點 Agent
-│   └── response_agent.py     # 回應生成 Agent
-├── api/                      # API 相關
-│   ├── __init__.py
-│   ├── client.py             # API 客戶端
-│   └── schemas.py            # API 數據模型
-├── utils/                    # 工具函數
-│   ├── __init__.py
-│   └── helpers.py            # 輔助函數
-└── tests/                    # 測試代碼
-    ├── __init__.py
-    └── test_agents.py        # Agent 測試
+系統工作流程如下：
 
 ```
+用戶查詢 -> 查詢解析(使用地理資料快取) -> 旅館搜索 -> 初步回應 -> 周邊地標搜索 -> 最終回應
+```
 
-## 開發進度
+## 特點
 
-- [X] 基本框架建構
-- [ ] 框架定案|實現 Multi-Agent 框架測試評比
-- [ ] API 客戶端實現
-- [ ] Agent 定義與實現
-- [ ] 協調機制設計
-- [ ] 漸進式回應策略
-- [ ] 容錯機制
-- [ ] 用戶交互設計
-- [ ] 測試與優化
+- **快速響應**：系統在5秒內提供初步回應，30秒內提供完整建議。
+- **並行處理**：多個Agent並行工作，提高效率。
+- **漸進式回應**：先提供初步結果，再補充詳細信息。
+- **容錯機制**：處理各種異常情況，確保系統穩定性。
+- **用戶友好**：提供直觀的Web界面，支持實時對話。
+- **地理資料快取**：預加載台灣縣市鄉鎮資料，大幅提升查詢解析速度。
+
+## 技術棧
+
+- **Python 3.13**：基礎編程語言
+- **LangGraph**：多Agent協作框架
+- **FastAPI**：Web服務框架
+- **WebSocket**：實時通信
+- **Pydantic**：數據驗證
+- **aiohttp**：異步HTTP客戶端
+- **loguru**：日誌記錄
+- **orjson**：高性能JSON處理
+- **Redis/SQLite**：地理資料快取存儲
 
 ## 安裝與運行
 
 ### 環境要求
 
-- Python 3.12
-- 依賴包見 requirements.txt (框架訂案後提供)
+- Python 3.13+
+- 可選：OpenAI API密鑰或本地Ollama服務
 
 ### 安裝步驟
 
+1. 克隆倉庫：
+
 ```bash
-# clone 項目
-git clone https://github.com/coseto6125/hotel-multiagent.git
-cd hotel-multiagent
+git clone https://github.com/yourusername/hotel-recommendation-system.git
+cd hotel-recommendation-system
+```
 
-# 安裝依賴
-pip install-requirements.txt #框架定案後提供
+2. 創建虛擬環境：
 
-# 運行系統
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# 或
+.venv\Scripts\activate  # Windows
+```
+
+3. 安裝依賴：
+
+```bash
+pip install -r requirements.txt
+```
+
+4. 配置環境變量：
+
+複製 `.env.example`為 `.env`，並填寫相關配置：
+
+```bash
+cp .env.example .env
+# 編輯.env文件，填寫API密鑰等信息
+```
+
+### 運行系統
+
+```bash
 python main.py
 ```
 
-## Agent 架構說明
+訪問 http://localhost:8000 即可使用系統。
 
-### 協調者 Agent (Coordinator)
+## API文檔
 
-負責接收用戶查詢，分配任務給其他 Agent，並整合結果。
+系統提供以下API：
 
-### 旅館推薦 Agent (Hotel Agent)
+- `GET /`：Web界面
+- `POST /api/chat`：聊天API
+- `WebSocket /ws/chat/{conversation_id}`：WebSocket聊天
 
-負責根據用戶需求查詢旅館信息，提供合適的住宿選項。
+## 開發指南
 
-### 周邊景點 Agent (POI Agent)
+### 目錄結構
 
-負責查詢旅館周邊的景點、餐廳等信息，提供周邊探索建議。
+```
+├── main.py                 # 主入口文件
+├── requirements.txt        # 依賴列表
+├── .env                    # 環境變量
+├── src/                    # 源代碼
+│   ├── api/                # API模塊
+│   │   ├── client.py       # API客戶端
+│   │   └── services.py     # API服務
+│   ├── agents/             # Agent模塊
+│   │   ├── base_agent.py   # 基礎Agent類
+│   │   ├── query_parser_agent.py    # 查詢解析Agent
+│   │   ├── hotel_search_agent.py    # 旅館搜索Agent
+│   │   ├── poi_search_agent.py      # 周邊地標搜索Agent
+│   │   └── response_generator_agent.py  # 回應生成Agent
+│   ├── cache/              # 快取模塊
+│   │   ├── geo_cache.py    # 地理資料快取
+│   │   └── cache_manager.py # 快取管理器
+│   ├── graph/              # LangGraph模塊
+│   │   └── workflow.py     # 工作流定義
+│   ├── models/             # 數據模型
+│   │   └── schemas.py      # 數據結構定義
+│   ├── services/           # 服務模塊
+│   │   └── llm_service.py  # LLM服務
+│   ├── utils/              # 工具模塊
+│   ├── web/                # Web模塊
+│   │   ├── app.py          # FastAPI應用
+│   │   ├── static/         # 靜態文件
+│   │   └── templates/      # HTML模板
+│   └── config.py           # 配置模塊
+└── tests/                  # 測試模塊
+```
 
-### 回應生成 Agent (Response Agent)
+### 擴展指南
 
-負責將各 Agent 的結果整合成自然、流暢的回應，提供給用戶。
+1. **添加新的Agent**：
 
-## API 使用說明
+   - 在 `src/agents/`目錄下創建新的Agent類
+   - 繼承 `BaseAgent`類
+   - 實現 `_process`方法
+2. **修改工作流**：
 
-系統使用以下 API 獲取旅館和周邊信息：
+   - 在 `src/graph/workflow.py`中修改工作流定義
+3. **添加新的API服務**：
 
-- 旅宿基礎參數 API
-- 旅館信息 API
-- 查詢周邊地標 API
+   - 在 `src/api/services.py`中添加新的API服務類
 
-詳細 API 文檔見：[https://raccoonai-agents-api.readme.io/reference](https://raccoonai-agents-api.readme.io/reference)
+## 開發進度
+
+### 基本框架建構
+
+- [X] 專案結構設定
+- [X] 配置管理系統
+- [X] 日誌系統
+- [X] 環境變數設定
+
+### LLM 服務整合
+
+- [X] OpenAI 整合
+- [X] Ollama 整合
+- [X] 非同步回應生成
+
+### Agent 定義與實現
+
+- [X] 查詢解析 Agent
+- [ ] 旅館搜索 Agent
+- [ ] 景點搜索 Agent
+- [ ] 回應生成 Agent
+
+### 快取系統實現
+
+- [ ] 地理資料快取設計
+- [ ] 縣市鄉鎮資料預加載
+- [ ] 快取更新機制
+- [ ] 快取查詢優化
+
+### LangGraph 工作流實現
+
+- [X] 工作流架構設計
+- [ ] 節點間狀態傳遞
+- [ ] 條件分支處理
+- [ ] 錯誤處理機制
+
+### API 客戶端實現
+
+- [ ] 旅館資料 API 整合
+- [ ] 景點資料 API 整合
+- [ ] 請求重試機制
+- [ ] 資料快取策略
+
+### FastAPI 後端服務
+
+- [X] 基本路由設定
+- [X] WebSocket 支援
+- [ ] 請求處理與回應生成
+- [ ] 錯誤處理與日誌記錄
+
+### 漸進式回應策略
+
+- [ ] 初步回應生成
+- [ ] 流式回應處理
+- [ ] 超時處理機制
+
+### 測試與優化
+
+- [X] 單元測試框架設定
+- [ ] Agent 功能測試
+- [ ] 工作流整合測試
+- [ ] 效能優化
+
+### 部署與維護
+
+- [ ] 容器化設定
+- [ ] 環境變數管理
+- [ ] 監控與日誌收集
+- [ ] CI/CD 流程設定
+
+## 貢獻指南
+
+歡迎提交Pull Request或Issue。
+
+## 許可證
+
+MIT
