@@ -6,9 +6,12 @@ import asyncio
 import unittest
 from datetime import datetime, timedelta
 
+import pytest
+
 from src.agents.date_parser_agent import DateParserAgent
 
 
+@pytest.mark.asyncio
 class TestDateParserAgent(unittest.TestCase):
     """測試日期解析子Agent"""
 
