@@ -41,6 +41,15 @@ class OllamaConfig(BaseModel):
     timeout: int = int(os.getenv("OLLAMA_TIMEOUT", "60"))
 
 
+class DucklingConfig(BaseModel):
+    """Duckling 配置"""
+
+    enabled: bool = os.getenv("DUCKLING_ENABLED", "true").lower() == "true"
+    base_url: str = os.getenv("DUCKLING_BASE_URL", "http://localhost:8000")
+    locale: str = os.getenv("DUCKLING_LOCALE", "zh_TW")
+    timeout: int = int(os.getenv("DUCKLING_TIMEOUT", "30"))
+
+
 class SystemConfig(BaseModel):
     """系統配置"""
 
@@ -64,6 +73,7 @@ class Config(BaseModel):
     api: APIConfig = APIConfig()
     llm: LLMConfig = LLMConfig()
     ollama: OllamaConfig = OllamaConfig()
+    duckling: DucklingConfig = DucklingConfig()
     system: SystemConfig = SystemConfig()
     fastapi: FastAPIConfig = FastAPIConfig()
 
