@@ -10,6 +10,7 @@ import spacy
 from loguru import logger
 
 from src.cache.geo_cache import geo_cache
+from src.utils.nlp_utils import get_shared_spacy_model
 
 
 class GeoParser:
@@ -65,7 +66,7 @@ class GeoParser:
         # 載入 spaCy 模型
         try:
             logger.info("載入 spaCy 中文模型")
-            self._nlp = spacy.load("zh_core_web_sm")
+            self._nlp = get_shared_spacy_model("zh_core_web_sm")
             logger.info("spaCy 中文模型載入成功")
             self._model_loaded = True
         except Exception as e:
@@ -93,7 +94,6 @@ class GeoParser:
 
     async def preload_model(self) -> None:
         """預先載入 spaCy 模型，可在應用啟動時調用"""
-        
         if not self._model_loaded:
             await self._load_spacy_model()
 

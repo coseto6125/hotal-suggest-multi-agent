@@ -8,9 +8,15 @@ from loguru import logger
 from opencc import OpenCC
 
 from src.agents.base_agent import BaseAgent
+from src.agents.budget_parser_agent import budget_parser_agent
+from src.agents.date_parser_agent import date_parser_agent
+from src.agents.geo_parser_agent import geo_parser_agent
+from src.agents.guest_parser_agent import guest_parser_agent
+from src.agents.hotel_type_parser_agent import hotel_type_parser_agent
+from src.agents.keyword_parser_agent import keyword_parser_agent
+from src.agents.special_req_parser_agent import special_req_parser_agent
+from src.agents.supply_parser_agent import supply_parser_agent
 from src.cache.geo_cache import geo_cache
-from src.services.llm_service import llm_service
-from src.utils.geo_parser import geo_parser
 
 
 class QueryParserAgent(BaseAgent):
@@ -36,65 +42,110 @@ class QueryParserAgent(BaseAgent):
             logger.info("地理資料快取尚未初始化，正在初始化...")
             await geo_cache.initialize()
 
-        # 使用 spaCy 解析地理實體 - 不需要重新初始化 geo_parser
-        geo_entities = await geo_parser.parse_geo_entities(user_query)
-        logger.info(f"從查詢中識別到的地理實體: {geo_entities}")
+        # 創建上下文字典，用於在各個子Agent之間共享資訊
+        context = {}
 
-        # 使用LLM解析用戶查詢，傳遞已解析的地理實體，避免重複解析
-        parsed_query = await llm_service.parse_user_query(user_query, geo_entities)
+        # 0. 使用備品搜尋子Agent解析房間備品名稱
+        supply_result = await supply_parser_agent.process_query(user_query, context)
+        context.update(supply_result)
+        logger.info(f"備品搜尋解析結果: {supply_result}")
 
-        # 將已解析的地理實體保存到 parsed_query 中，以便後續使用
-        parsed_query["geo_entities"] = geo_entities
-        parsed_query["original_query"] = user_query
+        # 如果是備品搜尋模式，直接返回結果
+        if context.get("is_supply_search", False):
+            parsed_query = {
+                "original_query": user_query,
+                "search_mode": "supply",
+                "supply_name": context.get("supply_name", ""),
+            }
+            return {"parsed_query": parsed_query, "original_query": user_query}
 
-        # 使用地理名稱解析器增強解析結果
-        enhanced_query = await geo_parser.enhance_query_with_geo_data(parsed_query)
+        # 1. 使用地理名稱解析子Agent解析地理名稱
+        geo_result = await geo_parser_agent.process_query(user_query, context)
+        context.update(geo_result)
+        logger.info(f"地理名稱解析結果: {geo_result}")
 
-        # 驗證解析結果中的地理資料
-        self._validate_geo_data(enhanced_query)
+        # 2. 使用日期解析子Agent解析旅遊日期
+        date_result = await date_parser_agent.process_query(user_query, context)
+        context.update(date_result)
+        logger.info(f"日期解析結果: {date_result}")
 
-        # 移除臨時使用的 geo_entities 字段，避免返回不必要的數據
-        if "geo_entities" in enhanced_query:
-            del enhanced_query["geo_entities"]
+        # 3. 使用人數解析子Agent解析人數信息
+        guest_result = await guest_parser_agent.process_query(user_query, context)
+        context.update(guest_result)
+        logger.info(f"人數解析結果: {guest_result}")
 
-        return {"parsed_query": enhanced_query, "original_query": user_query}
+        # 4. 使用預算解析子Agent解析預算範圍
+        budget_result = await budget_parser_agent.process_query(user_query, context)
+        context.update(budget_result)
+        logger.info(f"預算解析結果: {budget_result}")
 
-    def _validate_geo_data(self, parsed_query: dict[str, Any]) -> None:
-        """驗證並修正解析結果中的地理資料"""
-        if not parsed_query or "destination" not in parsed_query:
-            return
+        # 5. 使用旅館類型解析子Agent解析旅館類型
+        hotel_type_result = await hotel_type_parser_agent.process_query(user_query, context)
+        context.update(hotel_type_result)
+        logger.info(f"旅館類型解析結果: {hotel_type_result}")
 
-        destination = parsed_query.get("destination", {})
-        if not destination:
-            return
+        # 6. 使用特殊需求解析子Agent解析特殊需求
+        special_req_result = await special_req_parser_agent.process_query(user_query, context)
+        context.update(special_req_result)
+        logger.info(f"特殊需求解析結果: {special_req_result}")
 
-        # 獲取縣市和鄉鎮區
-        county_id = destination.get("county")
-        district_id = destination.get("district")
+        # 7. 使用旅館名稱/關鍵字解析子Agent解析旅館名稱和關鍵字
+        keyword_result = await keyword_parser_agent.process_query(user_query, context)
+        context.update(keyword_result)
+        logger.info(f"旅館名稱/關鍵字解析結果: {keyword_result}")
 
-        # 如果縣市ID無效，嘗試查找有效的ID
-        if county_id and not any(county.get("id") == county_id for county in geo_cache._counties):
-            logger.warning(f"無效的縣市ID: {county_id}，嘗試查找有效的ID")
-            # 嘗試將縣市名稱轉換為ID
-            county = geo_cache.get_county_by_name(county_id)
-            if county:
-                destination["county"] = county.get("id")
-                logger.info(f"將縣市名稱 '{county_id}' 轉換為ID: {county.get('id')}")
-            else:
-                logger.warning(f"無法找到縣市: {county_id}")
-                destination["county"] = None
+        # 構建最終的解析結果
+        parsed_query = self._build_parsed_query(user_query, context)
 
-        # 如果鄉鎮區ID無效，嘗試查找有效的ID
-        if district_id and not any(district.get("id") == district_id for district in geo_cache._districts):
-            logger.warning(f"無效的鄉鎮區ID: {district_id}，嘗試查找有效的ID")
-            # 嘗試將鄉鎮區名稱轉換為ID
-            district = geo_cache.get_district_by_name(district_id)
-            if district:
-                destination["district"] = district.get("id")
-                logger.info(f"將鄉鎮區名稱 '{district_id}' 轉換為ID: {district.get('id')}")
-            else:
-                logger.warning(f"無法找到鄉鎮區: {district_id}")
-                destination["district"] = None
+        return {"parsed_query": parsed_query, "original_query": user_query}
+
+    def _build_parsed_query(self, user_query: str, context: dict[str, Any]) -> dict[str, Any]:
+        """構建最終的解析結果"""
+        # 檢查是否是關鍵字搜尋模式
+        if context.get("is_keyword_search", False):
+            parsed_query = {
+                "original_query": user_query,
+                "search_mode": "keyword",
+                "hotel_keyword": context.get("hotel_keyword", ""),
+                "plan_keyword": context.get("plan_keyword", ""),
+                "check_in_start_at": context.get("dates", {}).get("check_in"),
+                "check_in_end_at": context.get("dates", {}).get("check_out"),
+            }
+        else:
+            # 條件搜尋模式
+            parsed_query = {
+                "original_query": user_query,
+                "search_mode": "filter",
+                "hotel_group_types": context.get("hotel_type", "BASIC"),
+                "check_in": context.get("dates", {}).get("check_in"),
+                "check_out": context.get("dates", {}).get("check_out"),
+                "adults": context.get("guests", {}).get("adults"),
+                "children": context.get("guests", {}).get("children"),
+                "lowest_price": context.get("budget", {}).get("min"),
+                "highest_price": context.get("budget", {}).get("max"),
+                "county_ids": context.get("county_ids", []),
+                "district_ids": context.get("district_ids", []),
+                "hotel_facility_ids": context.get("hotel_facility_ids", []),
+                "room_facility_ids": context.get("room_facility_ids", []),
+                "has_breakfast": context.get("has_breakfast", False),
+                "has_lunch": context.get("has_lunch", False),
+                "has_dinner": context.get("has_dinner", False),
+                "special_requirements": context.get("special_requirements", []),
+            }
+
+            # 如果有目的地信息，添加到解析結果中
+            if (
+                context.get("destination", {}).get("county")
+                and context["destination"]["county"] not in parsed_query["county_ids"]
+            ):
+                parsed_query["county_ids"].append(context["destination"]["county"])
+            if (
+                context.get("destination", {}).get("district")
+                and context["destination"]["district"] not in parsed_query["district_ids"]
+            ):
+                parsed_query["district_ids"].append(context["destination"]["district"])
+
+        return parsed_query
 
 
 # 創建查詢解析Agent實例

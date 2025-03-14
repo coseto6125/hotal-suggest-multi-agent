@@ -187,10 +187,10 @@ async def test_cache_persistence():
     # 檢查快取文件是否已創建
     cache_dir = Path("./cache")
     cache_files = [
-        cache_dir / "counties.pkl",
-        cache_dir / "districts.pkl",
-        cache_dir / "county_names.pkl",
-        cache_dir / "district_names.pkl",
+        cache_dir / "counties.json",
+        cache_dir / "districts.json",
+        cache_dir / "county_names.json",
+        cache_dir / "district_names.json",
         cache_dir / "county_index.bin",
         cache_dir / "district_index.bin",
     ]

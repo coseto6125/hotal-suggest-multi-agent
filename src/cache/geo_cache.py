@@ -4,13 +4,14 @@
 
 import asyncio
 import os
-import pickle
 from pathlib import Path
 from typing import Any
 
+import aiofiles
 import faiss
 import numpy as np
 from loguru import logger
+from orjson import dumps, loads
 from sentence_transformers import SentenceTransformer
 
 from src.api.services import hotel_api_service
@@ -35,10 +36,10 @@ class GeoCache:
 
         # 持久化相關屬性
         self._cache_dir = Path("./cache")
-        self._counties_cache_path = self._cache_dir / "counties.pkl"
-        self._districts_cache_path = self._cache_dir / "districts.pkl"
-        self._county_names_cache_path = self._cache_dir / "county_names.pkl"
-        self._district_names_cache_path = self._cache_dir / "district_names.pkl"
+        self._counties_cache_path = self._cache_dir / "counties.json"
+        self._districts_cache_path = self._cache_dir / "districts.json"
+        self._county_names_cache_path = self._cache_dir / "county_names.json"
+        self._district_names_cache_path = self._cache_dir / "district_names.json"
         self._county_index_cache_path = self._cache_dir / "county_index.bin"
         self._district_index_cache_path = self._cache_dir / "district_index.bin"
 
@@ -93,17 +94,21 @@ class GeoCache:
                 return False
 
             # 加載基本資料
-            with open(self._counties_cache_path, "rb") as f:
-                self._counties = pickle.load(f)
+            async with aiofiles.open(self._counties_cache_path, "rb") as f:
+                content = await f.read()
+                self._counties = loads(content)
 
-            with open(self._districts_cache_path, "rb") as f:
-                self._districts = pickle.load(f)
+            async with aiofiles.open(self._districts_cache_path, "rb") as f:
+                content = await f.read()
+                self._districts = loads(content)
 
-            with open(self._county_names_cache_path, "rb") as f:
-                self._county_names = pickle.load(f)
+            async with aiofiles.open(self._county_names_cache_path, "rb") as f:
+                content = await f.read()
+                self._county_names = loads(content)
 
-            with open(self._district_names_cache_path, "rb") as f:
-                self._district_names = pickle.load(f)
+            async with aiofiles.open(self._district_names_cache_path, "rb") as f:
+                content = await f.read()
+                self._district_names = loads(content)
 
             # 加載模型
             logger.info("載入Sentence Transformer模型")
@@ -124,20 +129,20 @@ class GeoCache:
         """將快取資料保存到磁碟"""
         try:
             # 確保快取目錄存在
-            os.makedirs(self._cache_dir, exist_ok=True)
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
 
             # 保存基本資料
-            with open(self._counties_cache_path, "wb") as f:
-                pickle.dump(self._counties, f)
+            async with aiofiles.open(self._counties_cache_path, "wb") as f:
+                await f.write(dumps(self._counties))
 
-            with open(self._districts_cache_path, "wb") as f:
-                pickle.dump(self._districts, f)
+            async with aiofiles.open(self._districts_cache_path, "wb") as f:
+                await f.write(dumps(self._districts))
 
-            with open(self._county_names_cache_path, "wb") as f:
-                pickle.dump(self._county_names, f)
+            async with aiofiles.open(self._county_names_cache_path, "wb") as f:
+                await f.write(dumps(self._county_names))
 
-            with open(self._district_names_cache_path, "wb") as f:
-                pickle.dump(self._district_names, f)
+            async with aiofiles.open(self._district_names_cache_path, "wb") as f:
+                await f.write(dumps(self._district_names))
 
             # 保存FAISS索引
             if self._county_index and self._district_index:

@@ -3,18 +3,21 @@
 """
 
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 import spacy
 from loguru import logger
 from spacy.matcher import Matcher
 
 from src.agents.base_sub_agent import BaseSubAgent
-from src.services.llm_service import llm_service
+from src.utils.nlp_utils import get_shared_spacy_model
 
 
 class GuestParserAgent(BaseSubAgent):
     """人數解析子Agent"""
+
+    # 靜態共享的spaCy模型
+    _shared_nlp: ClassVar[spacy.Language | None] = None
 
     def __init__(self):
         """初始化人數解析子Agent"""
@@ -31,6 +34,46 @@ class GuestParserAgent(BaseSubAgent):
         self.total_patterns = [
             re.compile(r"(\d+)\s*(?:個|位|名)?(?:人|位)"),
             re.compile(r"(?:一共|總共|共|全家)\s*(\d+)\s*(?:個|位|名)?(?:人|位|口)"),
+        ]
+
+        # 總人數中包含兒童的模式
+        self.total_with_children_patterns = [
+            re.compile(
+                r"(\d+)\s*(?:個|位|名)?(?:人|位)(?:，|,|、|。|\s)*(?:其中|包括|含|包含)\s*(\d+)\s*(?:個|位|名)?(?:小孩|兒童|孩子|小|嬰兒)"
+            ),
+            re.compile(
+                r"(?:一共|總共|共|全家)\s*(\d+)\s*(?:個|位|名)?(?:人|位)(?:，|,|、|。|\s)*(?:其中|包括|含|包含)?\s*(\d+)\s*(?:個|位|名)?(?:小孩|兒童|孩子|小|嬰兒)"
+            ),
+            re.compile(
+                r"(\d+)\s*(?:個|位|名)?(?:人|位)(?:，|,|、|。|\s)*(?:小孩|兒童|孩子|小|嬰兒)\s*(\d+)\s*(?:個|位|名)?"
+            ),
+            re.compile(
+                r"(\d+)\s*(?:個|位|名)?(?:人|位)(?:，|,|、|。|\s)*(?:含|包含|包括|其中有|其中)\s*(\d+)\s*(?:個|位|名)?(?:小孩|兒童|孩子|小|嬰兒)"
+            ),
+        ]
+
+        # 成人和兒童同時出現的模式
+        self.adults_and_children_patterns = [
+            re.compile(
+                r"(?:大人|成人|大)\s*(\d+)\s*(?:個|位|名)?(?:，|,|、|。|\s)*(?:小孩|兒童|孩子|小|嬰兒)\s*(\d+)\s*(?:個|位|名)?"
+            ),
+            re.compile(r"(?:大人|成人|大)\s*(\d+)\s*(?:個|位|名)?(?:小孩|兒童|孩子|小|嬰兒)\s*(\d+)\s*(?:個|位|名)?"),
+            re.compile(r"(?:大人|成人|大)\s*(\d+)\s*(?:位|個|名)(?:小孩|兒童|孩子|小|嬰兒)\s*(\d+)\s*(?:位|個|名)"),
+            re.compile(
+                r"(\d+)\s*(?:個|位|名)?(?:大人|成人|大)(?:，|,|、|。|\s)*(\d+)\s*(?:個|位|名)?(?:小孩|兒童|孩子|小|嬰兒)"
+            ),
+            re.compile(
+                r"(\d+)\s*(?:個|位|名)?(?:大人|成人|大)(?:、|，|,)(?:兩|二|2|两)(?:個|位|名)?(?:小孩|兒童|孩子|小|嬰兒)"
+            ),
+            re.compile(
+                r"(\d+)\s*(?:個|位|名)?(?:大人|成人|大)(?:、|，|,)(?:小孩|兒童|孩子|小|嬰兒)(?:兩|二|2|两)(?:個|位|名)?"
+            ),
+            re.compile(
+                r"(?:大人|成人|大)\s*(\d+)\s*(?:個|位|名)?(?:、|，|,)(?:兩|二|2|两)(?:個|位|名)?(?:小孩|兒童|孩子|小|嬰兒)"
+            ),
+            re.compile(
+                r"(?:大人|成人|大)\s*(\d+)\s*(?:個|位|名)?(?:、|，|,)(?:小孩|兒童|孩子|小|嬰兒)(?:兩|二|2|两)(?:個|位|名)?"
+            ),
         ]
 
         # 家庭人數相關模式
@@ -63,7 +106,8 @@ class GuestParserAgent(BaseSubAgent):
         # 初始化spaCy模型
         self.spacy_available = False
         try:
-            self.nlp = spacy.load("zh_core_web_sm")
+            # 嘗試獲取共享的spaCy模型
+            self.nlp = get_shared_spacy_model("zh_core_web_sm")
             self.spacy_available = True
             logger.info("成功載入spaCy中文模型")
 
@@ -187,7 +231,117 @@ class GuestParserAgent(BaseSubAgent):
         # 使用同步方式處理查詢
         guests = {"adults": None, "children": None}
 
-        # 首先檢查是否有家庭人數表達式
+        # 特殊處理"大人2位小孩1位"的情況
+        direct_pattern = re.compile(
+            r"(?:大人|成人|大)\s*(\d+)\s*(?:個|位|名)?(?:小孩|兒童|孩子|小|嬰兒)\s*(\d+)\s*(?:個|位|名)?"
+        )
+        match = direct_pattern.search(query)
+        if match:
+            try:
+                adults = int(match.group(1))
+                children = int(match.group(2))
+                guests["adults"] = adults
+                guests["children"] = children
+                logger.debug(f"從'大人X位小孩Y位'表達推斷: 成人={adults}, 兒童={children}")
+                return guests
+            except (ValueError, IndexError):
+                pass
+
+        # 特殊處理"大人3位、兩個孩子"的情況
+        adult_pattern = re.compile(r"(?:大人|成人|大)\s*(\d+)\s*(?:個|位|名)?(?:、|，|,)")
+        match_adult = adult_pattern.search(query)
+        if (
+            match_adult
+            and any(term in query for term in ["兩個", "二個", "两個", "兩位", "二位", "两位"])
+            and any(term in query for term in ["孩子", "小孩", "兒童"])
+        ):
+            try:
+                adults = int(match_adult.group(1))
+                children = 2
+                guests["adults"] = adults
+                guests["children"] = children
+                logger.debug(f"從'大人X位、兩個孩子'表達推斷: 成人={adults}, 兒童={children}")
+                return guests
+            except (ValueError, IndexError):
+                pass
+
+        # 特殊處理"3個大人、兩個孩子"的情況
+        adult_pattern2 = re.compile(r"(\d+)\s*(?:個|位|名)?(?:大人|成人|大)(?:、|，|,)")
+        match_adult2 = adult_pattern2.search(query)
+        if (
+            match_adult2
+            and (
+                "兩個" in query
+                or "二個" in query
+                or "两個" in query
+                or "兩位" in query
+                or "二位" in query
+                or "两位" in query
+            )
+            and ("孩子" in query or "小孩" in query or "兒童" in query)
+        ):
+            try:
+                adults = int(match_adult2.group(1))
+                children = 2
+                guests["adults"] = adults
+                guests["children"] = children
+                logger.debug(f"從'X個大人、兩個孩子'表達推斷: 成人={adults}, 兒童={children}")
+                return guests
+            except (ValueError, IndexError):
+                pass
+
+        # 首先檢查是否有"X人，其中Y個小孩"這種表達方式
+        for pattern in self.total_with_children_patterns:
+            match = pattern.search(query)
+            if match:
+                try:
+                    total = int(match.group(1))
+                    children = int(match.group(2))
+                    # 成人數量 = 總人數 - 兒童數量
+                    adults = max(1, total - children)
+                    guests["adults"] = adults
+                    guests["children"] = children
+                    logger.debug(f"從'X人，其中Y個小孩'表達推斷: 總人數={total}, 成人={adults}, 兒童={children}")
+                    return guests
+                except (ValueError, IndexError):
+                    continue
+
+        # 檢查是否有"大人X位小孩Y位"或"X個大人、Y個孩子"的表達方式
+        for pattern in self.adults_and_children_patterns:
+            match = pattern.search(query)
+            if match:
+                try:
+                    adults = int(match.group(1))
+                    # 處理"兩個小孩"的情況
+                    if len(match.groups()) > 1 and match.group(2):
+                        if match.group(2) in ["兩", "二", "两"]:
+                            children = 2
+                        else:
+                            try:
+                                children = int(match.group(2))
+                            except (ValueError, TypeError):
+                                children = 0
+                    # 檢查是否有"兩個孩子"的表達
+                    elif (
+                        "兩個" in query
+                        or "二個" in query
+                        or "两個" in query
+                        or "兩位" in query
+                        or "二位" in query
+                        or "两位" in query
+                    ):
+                        children = 2
+                    else:
+                        children = 0
+
+                    guests["adults"] = adults
+                    guests["children"] = children
+                    logger.debug(f"從'大人X位小孩Y位'表達推斷: 成人={adults}, 兒童={children}")
+                    return guests
+                except (ValueError, IndexError):
+                    continue
+
+        # 檢查是否有家庭人數表達式
         family_size = self._extract_family_size(query)
         if family_size is not None:
             # 假設家庭中有2位成人
@@ -553,8 +707,122 @@ class GuestParserAgent(BaseSubAgent):
         return None
 
     def _extract_guests_with_regex(self, query: str) -> dict[str, int | None]:
-        """使用正則表達式從查詢中提取人數"""
-        guests = {"adults": None, "children": None}
+        """使用正則表達式從查詢中提取人數信息"""
+        guests = {"adults": None, "children": 0}
+
+        # 特別處理"大人2位小孩1位"的表達方式
+        special_pattern = re.compile(r"大人(\d+)位小孩(\d+)位")
+        match = special_pattern.search(query)
+        if match:
+            try:
+                adults = int(match.group(1))
+                children = int(match.group(2))
+                guests["adults"] = adults
+                guests["children"] = children
+                logger.debug(f"從'大人X位小孩Y位'特殊表達推斷: 成人={adults}, 兒童={children}")
+                return guests
+            except (ValueError, IndexError):
+                pass
+
+        # 檢查是否有"X人，其中Y個小孩"這種表達方式
+        for pattern in self.total_with_children_patterns:
+            match = pattern.search(query)
+            if match:
+                try:
+                    total = int(match.group(1))
+                    children = int(match.group(2))
+                    # 成人數量 = 總人數 - 兒童數量
+                    adults = max(1, total - children)
+                    guests["adults"] = adults
+                    guests["children"] = children
+                    logger.debug(f"從'X人，其中Y個小孩'表達推斷: 總人數={total}, 成人={adults}, 兒童={children}")
+                    return guests
+                except (ValueError, IndexError):
+                    continue
+
+        # 檢查是否有"大人X位小孩Y位"或"X個大人、Y個孩子"的表達方式
+        for pattern in self.adults_and_children_patterns:
+            match = pattern.search(query)
+            if match:
+                try:
+                    adults = int(match.group(1))
+                    # 處理"兩個小孩"的情況
+                    if len(match.groups()) > 1 and match.group(2):
+                        if match.group(2) in ["兩", "二", "两"]:
+                            children = 2
+                        else:
+                            try:
+                                children = int(match.group(2))
+                            except (ValueError, TypeError):
+                                children = 0
+                    # 檢查是否有"兩個孩子"的表達
+                    elif (
+                        "兩個" in query
+                        or "二個" in query
+                        or "两個" in query
+                        or "兩位" in query
+                        or "二位" in query
+                        or "两位" in query
+                    ):
+                        children = 2
+                    else:
+                        children = 0
+
+                    guests["adults"] = adults
+                    guests["children"] = children
+                    logger.debug(f"從'大人X位小孩Y位'表達推斷: 成人={adults}, 兒童={children}")
+                    return guests
+                except (ValueError, IndexError):
+                    continue
+
+        # 特別處理"大人X位、兩個孩子"和"X個大人、兩個孩子"的表達方式
+        adult_pattern = re.compile(r"(?:大人|成人|大)\s*(\d+)\s*(?:個|位|名)?(?:、|，|,)")
+        match_adult = adult_pattern.search(query)
+        if (
+            match_adult
+            and (
+                "兩個" in query
+                or "二個" in query
+                or "两個" in query
+                or "兩位" in query
+                or "二位" in query
+                or "两位" in query
+            )
+            and ("孩子" in query or "小孩" in query or "兒童" in query)
+        ):
+            try:
+                adults = int(match_adult.group(1))
+                children = 2
+                guests["adults"] = adults
+                guests["children"] = children
+                logger.debug(f"從'大人X位、兩個孩子'表達推斷: 成人={adults}, 兒童={children}")
+                return guests
+            except (ValueError, IndexError):
+                pass
+
+        adult_pattern2 = re.compile(r"(\d+)\s*(?:個|位|名)?(?:大人|成人|大)(?:、|，|,)")
+        match_adult2 = adult_pattern2.search(query)
+        if (
+            match_adult2
+            and (
+                "兩個" in query
+                or "二個" in query
+                or "两個" in query
+                or "兩位" in query
+                or "二位" in query
+                or "两位" in query
+            )
+            and ("孩子" in query or "小孩" in query or "兒童" in query)
+        ):
+            try:
+                adults = int(match_adult2.group(1))
+                children = 2
+                guests["adults"] = adults
+                guests["children"] = children
+                logger.debug(f"從'X個大人、兩個孩子'表達推斷: 成人={adults}, 兒童={children}")
+                return guests
+            except (ValueError, IndexError):
+                pass
 
         # 提取成人數量
         for pattern in self.adult_patterns:
@@ -572,7 +840,12 @@ class GuestParserAgent(BaseSubAgent):
             match = pattern.search(query)
             if match:
                 try:
-                    guests["children"] = int(match.group(1))
+                    children_str = match.group(1)
+                    # 處理中文數字
+                    if children_str in ["兩", "二", "两"]:
+                        guests["children"] = 2
+                    else:
+                        guests["children"] = int(children_str)
                     logger.debug(f"從查詢中提取到兒童數量: {guests['children']}")
                     break
                 except (ValueError, IndexError):
@@ -635,91 +908,12 @@ class GuestParserAgent(BaseSubAgent):
 
         return guests
 
-    async def _extract_guests_with_llm(self, query: str) -> dict[str, int | None]:
-        """使用LLM從查詢中提取人數"""
-        system_prompt = """
-        你是一個旅館預訂系統的人數解析器。
-        你的任務是從用戶的自然語言查詢中提取成人數量和兒童數量。
-        
-        請注意以下規則：
-        1. 如果查詢中明確提到人數，請使用這些數字。
-        2. 如果查詢中提到"夫妻"、"情侶"、"兩口子"等，通常表示2位成人。
-        3. 如果查詢中提到"一家三口"，通常表示2位成人和1位兒童。
-        4. 如果查詢中提到"父母和X個孩子"，通常表示2位成人和X位兒童。
-        5. 如果查詢中提到"X口之家"或"X口家庭"，通常表示2位成人和(X-2)位兒童。
-        6. 如果查詢中沒有明確提到人數，請根據上下文推斷。
-        7. 如果無法推斷，請返回null。
-        
-        請以JSON格式返回結果，格式如下：
-        {"adults": 2, "children": 0}
-        
-        請確保返回有效的JSON格式，不要添加其他內容。
-        """
-
-        messages = [{"role": "user", "content": f"從以下查詢中提取成人數量和兒童數量：{query}"}]
-        response = await llm_service.generate_response(messages, system_prompt)
-
-        try:
-            # 清理回應，確保只包含JSON
-            response = response.strip()
-            # 如果回應包含多行，嘗試找到JSON部分
-            if "\n" in response:
-                for line in response.split("\n"):
-                    line = line.strip()
-                    if line.startswith("{") and line.endswith("}"):
-                        response = line
-                        break
-
-            # 使用正則表達式提取JSON
-            json_pattern = re.compile(r"{.*?}", re.DOTALL)
-            match = json_pattern.search(response)
-            if match:
-                import orjson
-
-                json_str = match.group(0)
-                # 進一步清理JSON字符串
-                json_str = json_str.replace("'", '"')  # 將單引號替換為雙引號
-                guests = orjson.loads(json_str)
-                return guests
-            # 如果無法找到JSON，嘗試手動解析
-            adults_pattern = re.compile(r'"adults":\s*(\d+)')
-            children_pattern = re.compile(r'"children":\s*(\d+)')
-
-            adults_match = adults_pattern.search(response)
-            children_match = children_pattern.search(response)
-
-            adults = int(adults_match.group(1)) if adults_match else None
-            children = int(children_match.group(1)) if children_match else None
-
-            return {"adults": adults, "children": children}
-        except Exception as e:
-            logger.error(f"LLM人數解析失敗: {e!s}")
-            logger.debug(f"LLM回應: {response}")
-
-        return {"adults": None, "children": None}
-
     async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的人數信息"""
         logger.info(f"解析查詢中的人數信息: {query}")
 
-        # 首先使用同步方法解析
+        # 使用同步方法解析
         guests = self.parse(query)
-
-        # 如果正則表達式和spaCy無法解析，嘗試使用LLM解析
-        if guests["adults"] is None or guests["children"] is None:
-            try:
-                llm_guests = await self._extract_guests_with_llm(query)
-
-                # 合併結果，優先使用已有的解析結果
-                if guests["adults"] is None and llm_guests["adults"] is not None:
-                    guests["adults"] = llm_guests["adults"]
-                    logger.debug(f"使用LLM解析到成人數量: {guests['adults']}")
-
-                if guests["children"] is None and llm_guests["children"] is not None:
-                    guests["children"] = llm_guests["children"]
-                    logger.debug(f"使用LLM解析到兒童數量: {guests['children']}")
-            except Exception as e:
-                logger.error(f"LLM解析過程中發生錯誤: {e!s}")
 
         # 如果仍然無法解析，設置默認值
         if guests["adults"] is None:
