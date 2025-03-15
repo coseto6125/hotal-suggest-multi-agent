@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_sub_agent import BaseSubAgent
+from src.agents.base.base_sub_agent import BaseSubAgent
 
 
 class FoodReqParserAgent(BaseSubAgent):
@@ -39,13 +39,6 @@ class FoodReqParserAgent(BaseSubAgent):
         # TODO: 實現餐食需求解析邏輯
         # 嘗試使用正則表達式解析餐食需求
         food_req = self._extract_food_req_with_regex(query)
-
-        # 如果正則表達式無法解析，使用LLM解析
-        if not food_req["has_breakfast"] and not food_req["has_lunch"] and not food_req["has_dinner"]:
-            llm_food_req = await self._extract_food_req_with_llm(query)
-
-            # 合併結果
-            food_req = {**food_req, **llm_food_req}
 
         return {"food_req": food_req}
 
@@ -88,33 +81,6 @@ class FoodReqParserAgent(BaseSubAgent):
                 break
 
         return food_req
-
-    async def _extract_food_req_with_llm(self, query: str) -> dict[str, bool]:
-        """使用LLM從查詢中提取餐食需求"""
-        # TODO: 實現LLM解析餐食需求的邏輯
-        system_prompt = """
-        你是一個旅館預訂系統的餐食需求解析器。
-        你的任務是從用戶的自然語言查詢中提取餐食需求。
-        請判斷用戶是否需要早餐、午餐和晚餐。
-        
-        請以JSON格式返回結果，格式如下：
-        {
-            "has_breakfast": true/false,
-            "has_lunch": true/false,
-            "has_dinner": true/false
-        }
-        """
-
-        user_message_template = "從以下查詢中提取餐食需求：{query}"
-        default_value = {"has_breakfast": False, "has_lunch": False, "has_dinner": False}
-
-        # 使用共用方法提取餐食需求
-        return await self._extract_with_llm(
-            query=query,
-            system_prompt=system_prompt,
-            user_message_template=user_message_template,
-            default_value=default_value,
-        )
 
 
 # 創建食物需求解析子Agent實例

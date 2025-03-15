@@ -204,7 +204,6 @@
         <div class="chat-container">
             <h1 class="text-center mb-4">旅館推薦系統</h1>
             <div class="chat-box" id="chatBox">
-                <div class="system-message">您好！請告訴我您想去哪裡旅遊、什麼時候出發、有幾位旅客？</div>
             </div>
             <div class="typing-indicator" id="typingIndicator">
                 <span class="dot"></span>
@@ -275,15 +274,13 @@
             // 連接打開時
             socket.onopen = function(e) {
                 console.log('WebSocket連接已建立');
+                // 歡迎消息會由服務器在連接建立後發送
             };
             
             // 接收消息時
             socket.onmessage = function(event) {
                 const data = JSON.parse(event.data);
                 console.log('收到消息:', data);  // 調試用
-                
-                // 更新對話ID
-                conversationId = data.conversation_id;
                 
                 // 處理錯誤消息
                 if (data.error) {
@@ -294,7 +291,44 @@
                     return;
                 }
                 
-                // 處理消息
+                // 處理聊天消息類型
+                if (data.type === "chat_message") {
+                    // 隱藏打字指示器
+                    typingIndicator.style.display = 'none';
+                    
+                    const message = data.data;
+                    
+                    // 根據角色顯示消息
+                    if (message.role === "assistant") {
+                        addMessage(message.content, 'assistant');
+                    } else if (message.role === "system") {
+                        addSystemMessage(message.content);
+                    }
+                    // 用戶消息已經在發送時添加，不需要再次添加
+                    
+                    return;
+                }
+                
+                // 處理 response 類型消息
+                if (data.type === "response") {
+                    // 隱藏打字指示器
+                    typingIndicator.style.display = 'none';
+                    
+                    const responseData = data.data;
+                    
+                    // 如果沒有通過chat_message發送過，則在這裡顯示
+                    if (responseData.response && responseData.response.message) {
+                        // 檢查是否已經顯示過這條消息
+                        const lastMessage = chatBox.lastElementChild;
+                        if (!lastMessage || !lastMessage.textContent.includes(responseData.response.message)) {
+                            addMessage(responseData.response.message, 'assistant');
+                        }
+                    }
+                    
+                    return;
+                }
+                
+                // 處理漸進式回應
                 if (!data.is_complete) {
                     // 顯示打字指示器
                     typingIndicator.style.display = 'block';
@@ -548,6 +582,8 @@
             const message = messageInput.value.trim();
             
             if (!message) {
+                // 顯示提示消息給用戶
+                addSystemMessage("請輸入您的旅遊需求，例如：'我想在台北找間飯店，2大1小，預算3000以內'");
                 return;
             }
             
@@ -563,7 +599,7 @@
             // 發送消息到服務器
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({
-                    message: message
+                    message: message  // 使用message字段
                 }));
             } else {
                 // 如果WebSocket未連接，嘗試重新連接
@@ -573,7 +609,7 @@
                 setTimeout(() => {
                     if (socket && socket.readyState === WebSocket.OPEN) {
                         socket.send(JSON.stringify({
-                            message: message
+                            message: message  // 使用message字段
                         }));
                     } else {
                         addSystemMessage('無法連接到服務器，請刷新頁面重試。');

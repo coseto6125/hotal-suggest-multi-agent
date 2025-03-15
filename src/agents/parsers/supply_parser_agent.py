@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_sub_agent import BaseSubAgent
+from src.agents.base.base_sub_agent import BaseSubAgent
 
 
 class SupplyParserAgent(BaseSubAgent):

@@ -6,7 +6,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_agent import BaseAgent
+from src.agents.base.base_agent import BaseAgent
 from src.api.services import poi_api_service
 
 

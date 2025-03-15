@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_sub_agent import BaseSubAgent
+from src.agents.base.base_sub_agent import BaseSubAgent
 
 
 class HotelTypeParserAgent(BaseSubAgent):
@@ -44,21 +44,17 @@ class HotelTypeParserAgent(BaseSubAgent):
 
     async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的旅館類型"""
-        logger.info(f"解析查詢中的旅館類型: {query}")
+        logger.debug(f"[{self.name}] 開始解析旅館類型")
+        try:
+            if not query:
+                raise ValueError("查詢內容為空")
 
-        # 嘗試使用正則表達式解析旅館類型
-        hotel_type = self._extract_hotel_type_with_regex(query)
+            # TODO: 暫時返回查詢不到的結果
+            return {"hotel_type": "BASIC", "message": "無法從查詢中提取旅館類型，使用預設類型：BASIC"}
 
-        # 如果正則表達式無法解析，使用LLM解析
-        if not hotel_type:
-            hotel_type = await self._extract_hotel_type_with_llm(query)
-
-        # 如果仍然無法解析，設置為默認值
-        if not hotel_type:
-            hotel_type = "BASIC"  # 默認為基本類型
-            logger.info("無法解析旅館類型，使用默認值: BASIC")
-
-        return {"hotel_type": hotel_type}
+        except Exception as e:
+            logger.debug(f"[{self.name}] 旅館類型解析失敗: {e}")
+            return {"hotel_type": "BASIC", "message": f"旅館類型解析失敗，使用預設類型：BASIC（錯誤：{e!s}）"}
 
     def _extract_hotel_type_with_regex(self, query: str) -> str:
         """使用正則表達式從查詢中提取旅館類型"""
@@ -96,30 +92,30 @@ class HotelTypeParserAgent(BaseSubAgent):
         請直接返回類型代碼，不要添加任何其他內容。
         """
 
-        user_message_template = "從以下查詢中提取旅館類型：{query}"
+        response_format = {"type": str}
 
         # 使用共用方法提取旅館類型
         response = await self._extract_with_llm(
-            query=query, system_prompt=system_prompt, user_message_template=user_message_template, default_value=""
+            prompt=f"從以下查詢中提取旅館類型：{query}", system_prompt=system_prompt, response_format=response_format
         )
 
         # 如果回應是字符串，進行處理
-        if isinstance(response, str):
+        if isinstance(response, dict) and "type" in response:
             # 清理回應
-            response = response.strip().upper()
+            hotel_type = response["type"].strip().upper()
 
             # 檢查回應是否為有效的類型
-            if response in self.hotel_type_keywords:
-                logger.info(f"LLM解析到旅館類型: {response}")
-                return response
+            if hotel_type in self.hotel_type_keywords:
+                logger.info(f"LLM解析到旅館類型: {hotel_type}")
+                return hotel_type
 
             # 如果不是有效類型，嘗試從回應中提取有效類型
             for hotel_type in self.hotel_type_keywords:
-                if hotel_type in response:
+                if hotel_type in response["type"]:
                     logger.info(f"從LLM回應中提取到旅館類型: {hotel_type}")
                     return hotel_type
 
-            logger.warning(f"LLM回應不包含有效的旅館類型: {response}")
+            logger.warning(f"LLM回應不包含有效的旅館類型: {response['type']}")
         else:
             logger.warning(f"LLM回應格式不正確: {response}")
 

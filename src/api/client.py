@@ -23,12 +23,11 @@ class APIClient:
         url = f"{self.base_url}{endpoint}"
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url, params=params, headers=self.headers, timeout=aiohttp.ClientTimeout(total=self.timeout)
-                ) as response:
-                    response.raise_for_status()
-                    return await response.json(loads=orjson.loads)
+            async with aiohttp.ClientSession() as session, session.get(
+                url, params=params, headers=self.headers, timeout=aiohttp.ClientTimeout(total=self.timeout)
+            ) as response:
+                response.raise_for_status()
+                return await response.json(loads=orjson.loads)
         except aiohttp.ClientError as e:
             logger.error(f"API請求失敗: {url}, 錯誤: {e!s}")
             raise
@@ -38,12 +37,11 @@ class APIClient:
         url = f"{self.base_url}{endpoint}"
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url, json=data, headers=self.headers, timeout=aiohttp.ClientTimeout(total=self.timeout)
-                ) as response:
-                    response.raise_for_status()
-                    return await response.json(loads=orjson.loads)
+            async with aiohttp.ClientSession() as session, session.post(
+                url, json=data, headers=self.headers, timeout=aiohttp.ClientTimeout(total=self.timeout)
+            ) as response:
+                response.raise_for_status()
+                return await response.json(loads=orjson.loads)
         except aiohttp.ClientError as e:
             logger.error(f"API請求失敗: {url}, 錯誤: {e!s}")
             raise

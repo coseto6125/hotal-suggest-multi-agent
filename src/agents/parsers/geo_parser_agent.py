@@ -6,7 +6,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_sub_agent import BaseSubAgent
+from src.agents.base.base_sub_agent import BaseSubAgent
 from src.cache.geo_cache import geo_cache
 from src.utils.geo_parser import geo_parser
 

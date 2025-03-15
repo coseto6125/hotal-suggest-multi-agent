@@ -108,11 +108,28 @@ python main.py
 │   │   ├── client.py       # API客戶端
 │   │   └── services.py     # API服務
 │   ├── agents/             # Agent模塊
-│   │   ├── base_agent.py   # 基礎Agent類
-│   │   ├── query_parser_agent.py    # 查詢解析Agent
-│   │   ├── hotel_search_agent.py    # 旅館搜索Agent
-│   │   ├── poi_search_agent.py      # 周邊地標搜索Agent
-│   │   └── response_generator_agent.py  # 回應生成Agent
+│   │   ├── base/           # 基礎Agent類
+│   │   │   ├── base_agent.py
+│   │   │   ├── base_sub_agent.py
+│   │   │   └── orchestrator_agent.py
+│   │   ├── parsers/        # 解析類Agent
+│   │   │   ├── query_parser_agent.py
+│   │   │   ├── date_parser_agent.py
+│   │   │   ├── budget_parser_agent.py
+│   │   │   ├── geo_parser_agent.py
+│   │   │   ├── guest_parser_agent.py
+│   │   │   ├── hotel_type_parser_agent.py
+│   │   │   ├── keyword_parser_agent.py
+│   │   │   ├── special_req_parser_agent.py
+│   │   │   ├── food_req_parser_agent.py
+│   │   │   └── supply_parser_agent.py
+│   │   ├── search/         # 搜索類Agent
+│   │   │   ├── hotel_search_agent.py
+│   │   │   ├── hotel_search_fuzzy_agent.py
+│   │   │   ├── hotel_search_plan_agent.py
+│   │   │   └── poi_search_agent.py
+│   │   └── generators/     # 生成類Agent
+│   │       └── response_generator_agent.py
 │   ├── cache/              # 快取模塊
 │   │   ├── geo_cache.py    # 地理資料快取
 │   │   └── cache_manager.py # 快取管理器
@@ -130,6 +147,36 @@ python main.py
 │   └── config.py           # 配置模塊
 └── tests/                  # 測試模塊
 ```
+
+### Agent 模組說明
+
+系統中的 Agent 分為以下幾個主要類別：
+
+1. **基礎類 Agent**
+   - `BaseAgent`: 所有 Agent 的基礎類別
+   - `BaseSubAgent`: 子 Agent 的基礎類別
+   - `OrchestratorAgent`: 協調器 Agent，負責協調其他 Agent 的工作
+
+2. **解析類 Agent**
+   - `QueryParserAgent`: 解析用戶查詢
+   - `DateParserAgent`: 解析日期相關資訊
+   - `BudgetParserAgent`: 解析預算相關資訊
+   - `GeoParserAgent`: 解析地理位置資訊
+   - `GuestParserAgent`: 解析住客資訊
+   - `HotelTypeParserAgent`: 解析旅館類型
+   - `KeywordParserAgent`: 解析關鍵字
+   - `SpecialReqParserAgent`: 解析特殊需求
+   - `FoodReqParserAgent`: 解析餐飲需求
+   - `SupplyParserAgent`: 解析供應商資訊
+
+3. **搜索類 Agent**
+   - `HotelSearchAgent`: 基本旅館搜索
+   - `HotelSearchFuzzyAgent`: 模糊旅館搜索
+   - `HotelSearchPlanAgent`: 旅館方案搜索
+   - `POISearchAgent`: 景點搜索
+
+4. **生成類 Agent**
+   - `ResponseGeneratorAgent`: 生成回應內容
 
 ### 擴展指南
 

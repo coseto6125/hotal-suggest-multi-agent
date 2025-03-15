@@ -6,9 +6,8 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_agent import BaseAgent
+from src.agents.base.base_agent import BaseAgent
 from src.cache.geo_cache import geo_cache
-from src.services.llm_service import llm_service
 
 
 class ResponseGeneratorAgent(BaseAgent):
@@ -17,61 +16,79 @@ class ResponseGeneratorAgent(BaseAgent):
     def __init__(self):
         """初始化回應生成Agent"""
         super().__init__("ResponseGeneratorAgent")
+        self.logger = logger
 
-    async def _process(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        """處理回應生成"""
-        # TODO: 實現回應生成邏輯
-        original_query = inputs.get("original_query", "")
-        hotels = inputs.get("hotels", [])
-        hotel_details = inputs.get("hotel_details", [])
-        poi_results = inputs.get("poi_results", [])
+    async def process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
+        """處理查詢並生成回應"""
+        return await self._process({"original_query": query, **context})
 
-        if not original_query:
-            return {"error": "原始查詢為空"}
+    async def _process(self, state: dict) -> dict:
+        """處理生成回應的方法"""
+        self.logger.info("開始生成回應")
 
-        if not hotels:
-            return {"response": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件。"}
+        # 添加更詳細的日誌記錄
+        self.logger.debug(f"回應生成器收到的完整輸入狀態: {state}")
 
-        logger.info(f"生成回應，旅館數量: {len(hotels)}, 周邊地標結果數量: {len(poi_results)}")
+        # 獲取搜索結果
+        hotel_search_results = state.get("hotel_search_results", [])
+        fuzzy_search_results = state.get("fuzzy_search_results", [])
+        plan_search_results = state.get("plan_search_results", [])
 
-        # 使用 FAISS 增強地理位置資訊
-        enhanced_hotels = await self._enhance_geo_information(hotels)
-        enhanced_poi_results = await self._enhance_geo_information_for_pois(poi_results)
+        # 記錄詳細的輸入數據類型和值
+        self.logger.debug(
+            f"收到的hotel_search_results類型: {type(hotel_search_results)}, 值: {hotel_search_results[:5] if len(hotel_search_results) > 5 else hotel_search_results}"
+        )
+        self.logger.debug(
+            f"收到的fuzzy_search_results類型: {type(fuzzy_search_results)}, 值: {fuzzy_search_results[:5] if len(fuzzy_search_results) > 5 else fuzzy_search_results}"
+        )
+        self.logger.debug(
+            f"收到的plan_search_results類型: {type(plan_search_results)}, 值: {plan_search_results[:5] if len(plan_search_results) > 5 else plan_search_results}"
+        )
 
-        # 構建系統提示
-        system_prompt = """
-        你是一個旅館推薦助手，負責為用戶提供旅館推薦和周邊探索建議。
-        請根據提供的旅館信息和周邊地標信息，生成一個全面且有用的回應。
-        
-        回應應包括：
-        1. 對用戶查詢的簡短總結
-        2. 推薦的旅館列表（包括名稱、地址、價格和特點）
-        3. 每個旅館周邊的景點、餐廳和交通信息
-        4. 根據用戶需求提供的個性化建議
-        5. 關於旅館所在地區的簡短介紹，包括當地特色和旅遊建議
-        
-        請使用友好、專業的語氣，並確保信息準確、有條理。
-        """
+        # 合併所有搜索結果
+        all_hotels = hotel_search_results + fuzzy_search_results
+        self.logger.debug(
+            f"合併後的all_hotels類型: {type(all_hotels)}, 長度: {len(all_hotels)}, 值: {all_hotels[:5] if len(all_hotels) > 5 else all_hotels}"
+        )
 
-        # 構建用戶消息
-        user_message = f"""
-        用戶查詢: {original_query}
-        
-        旅館信息:
-        {self._format_hotels(enhanced_hotels, hotel_details)}
-        
-        周邊地標信息:
-        {self._format_poi_results(enhanced_poi_results)}
-        
-        地區特色信息:
-        {await self._get_region_features(hotels)}
-        """
+        # 如果沒有找到旅館，返回無結果的回應
+        if not all_hotels and not plan_search_results:
+            self.logger.warning("沒有找到符合條件的旅館")
+            response = {"status": "no_results", "message": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件。"}
+            return {
+                **state,
+                "response": response,
+                "text_response": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件，或提供更多細節，如位置、日期和預算。",
+            }
 
-        # 生成回應
-        messages = [{"role": "user", "content": user_message}]
-        response = await llm_service.generate_response(messages, system_prompt)
+        # 根據搜索結果生成回應
+        query = state.get("query", "")
+        self.logger.info(f"為查詢 '{query}' 生成回應，找到 {len(all_hotels)} 個旅館")
 
-        return {"response": response}
+        # 生成簡短回應
+        response_text = f"我找到了 {len(all_hotels)} 個符合您要求的旅館。"
+        if plan_search_results:
+            response_text += f" 其中 {len(plan_search_results)} 個有特別方案。"
+
+        # 將最多3個旅館資訊添加到回應
+        if all_hotels:
+            response_text += "\n\n推薦旅館：\n"
+            for i, hotel in enumerate(all_hotels[:3], 1):
+                name = hotel.get("name", "未知旅館")
+                address = hotel.get("address", "地址未提供")
+                price = hotel.get("price", "價格未提供")
+                response_text += f"{i}. {name} - {address}, 價格約 NT${price}\n"
+
+        # 返回回應
+        return {
+            "response": {
+                "status": "success",
+                "hotels": all_hotels[:5],  # 限制回傳數量
+                "plans": plan_search_results[:3],  # 限制回傳數量
+                "message": response_text,
+            },
+            "text_response": response_text,
+        }
 
     async def _enhance_geo_information(self, hotels: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """使用 FAISS 向量資料庫增強旅館的地理位置資訊"""

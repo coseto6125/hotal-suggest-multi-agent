@@ -8,7 +8,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_sub_agent import BaseSubAgent
+from src.agents.base.base_sub_agent import BaseSubAgent
 
 
 class DateParserAgent(BaseSubAgent):
@@ -31,37 +31,56 @@ class DateParserAgent(BaseSubAgent):
 
     async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的旅遊日期"""
-        logger.info(f"解析查詢中的旅遊日期: {query}")
+        logger.debug(f"[{self.name}] 開始解析日期")
+        try:
+            if not query:
+                raise ValueError("查詢內容為空")
 
-        # 嘗試使用正則表達式解析日期
-        dates = self._extract_dates_with_regex(query)
+            # 嘗試使用正則表達式解析日期
+            dates = self._extract_dates_with_regex(query)
 
-        # 如果仍然無法解析，嘗試根據上下文推斷
-        if not dates.get("check_in") or not dates.get("check_out"):
-            inferred_dates = self._infer_dates(query)
+            # 如果仍然無法解析，嘗試根據上下文推斷
+            if not dates.get("check_in") or not dates.get("check_out"):
+                inferred_dates = self._infer_dates(query)
 
-            # 合併結果，優先使用已解析的結果
-            if not dates.get("check_in") and inferred_dates.get("check_in"):
-                dates["check_in"] = inferred_dates["check_in"]
+                # 合併結果，優先使用已解析的結果
+                if not dates.get("check_in") and inferred_dates.get("check_in"):
+                    dates["check_in"] = inferred_dates["check_in"]
 
-            if not dates.get("check_out") and inferred_dates.get("check_out"):
-                dates["check_out"] = inferred_dates["check_out"]
+                if not dates.get("check_out") and inferred_dates.get("check_out"):
+                    dates["check_out"] = inferred_dates["check_out"]
 
-        # 如果仍然無法解析，使用LLM解析
-        if not dates.get("check_in") or not dates.get("check_out"):
-            llm_dates = await self._extract_dates_with_llm(query)
+            # 驗證日期的有效性
+            self._validate_dates(dates)
 
-            # 合併結果，優先使用正則表達式解析的結果
-            if not dates.get("check_in") and llm_dates.get("check_in"):
-                dates["check_in"] = llm_dates["check_in"]
+            # 如果驗證後仍然沒有有效的日期，使用預設日期
+            if not dates.get("check_in") or not dates.get("check_out"):
+                today = datetime.now()
+                tomorrow = today + timedelta(days=1)
+                day_after_tomorrow = today + timedelta(days=2)
 
-            if not dates.get("check_out") and llm_dates.get("check_out"):
-                dates["check_out"] = llm_dates["check_out"]
+                dates = {
+                    "check_in": tomorrow.strftime("%Y-%m-%d"),
+                    "check_out": day_after_tomorrow.strftime("%Y-%m-%d"),
+                    "message": "無法從查詢中提取有效日期，使用預設日期：隔天入住、後天退房",
+                }
 
-        # 驗證日期的有效性
-        self._validate_dates(dates)
+            return {"dates": dates}
 
-        return {"dates": dates}
+        except Exception as e:
+            logger.error(f"[{self.name}] 日期解析失敗: {e}")
+            # 發生錯誤時使用預設日期
+            today = datetime.now()
+            tomorrow = today + timedelta(days=1)
+            day_after_tomorrow = today + timedelta(days=2)
+
+            return {
+                "dates": {
+                    "check_in": tomorrow.strftime("%Y-%m-%d"),
+                    "check_out": day_after_tomorrow.strftime("%Y-%m-%d"),
+                    "message": f"日期解析失敗，使用預設日期：隔天入住、後天退房（錯誤：{e!s}）",
+                }
+            }
 
     def _extract_dates_with_regex(self, query: str) -> dict[str, str]:
         """使用正則表達式從查詢中提取日期"""
@@ -102,33 +121,6 @@ class DateParserAgent(BaseSubAgent):
             dates["check_out"] = check_out_date.strftime("%Y-%m-%d")
 
         return dates
-
-    async def _extract_dates_with_llm(self, query: str) -> dict[str, str]:
-        """使用LLM從查詢中提取日期"""
-        system_prompt = """
-        你是一個旅館預訂系統的日期解析器。
-        你的任務是從用戶的自然語言查詢中提取入住日期和退房日期。
-        請以YYYY-MM-DD格式返回日期。
-        如果查詢中沒有明確提到日期，但有提到相對時間（如"下週"、"這個週末"等），請根據當前日期推斷具體日期。
-        如果查詢中完全沒有提到日期或相對時間，請返回null。
-        
-        請以JSON格式返回結果，格式如下：
-        {
-            "check_in": "YYYY-MM-DD",
-            "check_out": "YYYY-MM-DD"
-        }
-        """
-
-        user_message_template = "從以下查詢中提取入住日期和退房日期：{query}"
-        default_value = {"check_in": None, "check_out": None}
-
-        # 使用共用方法提取日期
-        return await self._extract_with_llm(
-            query=query,
-            system_prompt=system_prompt,
-            user_message_template=user_message_template,
-            default_value=default_value,
-        )
 
     def _infer_dates(self, query: str) -> dict[str, str]:
         """根據查詢內容推斷日期"""

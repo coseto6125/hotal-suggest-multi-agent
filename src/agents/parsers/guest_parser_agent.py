@@ -9,7 +9,7 @@ import spacy
 from loguru import logger
 from spacy.matcher import Matcher
 
-from src.agents.base_sub_agent import BaseSubAgent
+from src.agents.base.base_sub_agent import BaseSubAgent
 from src.utils.nlp_utils import get_shared_spacy_model
 
 

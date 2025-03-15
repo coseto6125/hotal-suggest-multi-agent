@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_sub_agent import BaseSubAgent
+from src.agents.base.base_sub_agent import BaseSubAgent
 from src.services.llm_service import llm_service
 
 
@@ -72,26 +72,38 @@ class KeywordParserAgent(BaseSubAgent):
 
     async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的旅館名稱和關鍵字"""
-        logger.info(f"解析查詢中的旅館名稱和關鍵字: {query}")
+        logger.debug(f"[{self.name}] 開始解析關鍵字")
+        try:
+            if not query:
+                raise ValueError("查詢內容為空")
 
-        # 嘗試使用正則表達式解析旅館名稱和關鍵字
-        keywords = self._extract_keywords_with_regex(query)
+            # 嘗試使用正則表達式解析旅館名稱和關鍵字
+            keywords = self._extract_keywords_with_regex(query)
 
-        # 如果正則表達式無法解析，使用LLM解析
-        if not keywords["hotel_keyword"] and not keywords["plan_keyword"]:
-            llm_keywords = await self._extract_keywords_with_llm(query)
+            # 如果正則表達式無法解析，使用LLM解析
+            if not keywords["hotel_keyword"] and not keywords["plan_keyword"]:
+                llm_keywords = await self._extract_keywords_with_llm(query)
 
-            # 合併結果
-            if llm_keywords["hotel_keyword"]:
-                keywords["hotel_keyword"] = llm_keywords["hotel_keyword"]
-            if llm_keywords["plan_keyword"]:
-                keywords["plan_keyword"] = llm_keywords["plan_keyword"]
+                # 合併結果
+                if llm_keywords["hotel_keyword"]:
+                    keywords["hotel_keyword"] = llm_keywords["hotel_keyword"]
+                if llm_keywords["plan_keyword"]:
+                    keywords["plan_keyword"] = llm_keywords["plan_keyword"]
 
-        # 檢查是否是關鍵字搜尋模式
-        is_keyword_search = self._is_keyword_search_mode(query, keywords)
-        keywords["is_keyword_search"] = is_keyword_search
+            # 檢查是否是關鍵字搜尋模式
+            is_keyword_search = self._is_keyword_search_mode(query, keywords)
+            keywords["is_keyword_search"] = is_keyword_search
 
-        return keywords
+            return keywords
+
+        except Exception as e:
+            logger.debug(f"[{self.name}] 關鍵字解析失敗: {e}")
+            return {
+                "hotel_keyword": "",
+                "plan_keyword": "",
+                "is_keyword_search": False,
+                "message": f"關鍵字解析失敗（錯誤：{e!s}）",
+            }
 
     def _extract_keywords_with_regex(self, query: str) -> dict[str, Any]:
         """使用正則表達式從查詢中提取旅館名稱和關鍵字"""
@@ -188,11 +200,7 @@ class KeywordParserAgent(BaseSubAgent):
             "議",
         ]
 
-        for indicator in keyword_indicators:
-            if indicator in query:
-                return True
-
-        return False
+        return any(indicator in query for indicator in keyword_indicators)
 
 
 # 創建旅館名稱/關鍵字解析子Agent實例
