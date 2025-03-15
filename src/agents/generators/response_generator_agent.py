@@ -27,7 +27,7 @@ class ResponseGeneratorAgent(BaseAgent):
         self.logger.info("開始生成回應")
 
         # 添加更詳細的日誌記錄
-        self.logger.debug(f"回應生成器收到的完整輸入狀態: {state}")
+        self.logger.debug(f"回應生成器收到的完整輸入狀態: {str(state)[:50]}")
 
         # 獲取搜索結果
         hotel_search_results = state.get("hotel_search_results", [])
@@ -36,19 +36,19 @@ class ResponseGeneratorAgent(BaseAgent):
 
         # 記錄詳細的輸入數據類型和值
         self.logger.debug(
-            f"收到的hotel_search_results類型: {type(hotel_search_results)}, 值: {hotel_search_results[:5] if len(hotel_search_results) > 5 else hotel_search_results}"
+            f"收到的hotel_search_results類型: {type(hotel_search_results)}, 值: {str(hotel_search_results)[:30]}"
         )
         self.logger.debug(
-            f"收到的fuzzy_search_results類型: {type(fuzzy_search_results)}, 值: {fuzzy_search_results[:5] if len(fuzzy_search_results) > 5 else fuzzy_search_results}"
+            f"收到的fuzzy_search_results類型: {type(fuzzy_search_results)}, 值: {str(fuzzy_search_results)[:30]}"
         )
         self.logger.debug(
-            f"收到的plan_search_results類型: {type(plan_search_results)}, 值: {plan_search_results[:5] if len(plan_search_results) > 5 else plan_search_results}"
+            f"收到的plan_search_results類型: {type(plan_search_results)}, 值: {str(plan_search_results)[:30]}"
         )
 
         # 合併所有搜索結果
         all_hotels = hotel_search_results + fuzzy_search_results
         self.logger.debug(
-            f"合併後的all_hotels類型: {type(all_hotels)}, 長度: {len(all_hotels)}, 值: {all_hotels[:5] if len(all_hotels) > 5 else all_hotels}"
+            f"合併後的all_hotels類型: {type(all_hotels)}, 長度: {len(all_hotels)}, 值: {str(all_hotels)[:30]}"
         )
 
         # 如果沒有找到旅館，返回無結果的回應
@@ -347,6 +347,28 @@ class ResponseGeneratorAgent(BaseAgent):
             result += "\n"
 
         return result
+
+    def _choose_search_node(self, state: dict[str, Any]) -> str:
+        # 檢查是否已經嘗試過生成回應，避免循環
+        if state.get("tried_response_generation"):
+            logger.warning("檢測到可能的循環，強制結束工作流")
+            return "search_complete"
+
+        # 其他邏輯...
+
+        # 當沒有足夠條件時應明確標記搜索任務為完成
+        if not basic_search_ready:
+            if "search_tasks_complete" not in state:
+                state["search_tasks_complete"] = {}
+            state["search_tasks_complete"]["hotel_search"] = True
+
+    def _search_complete_check(self, state: dict[str, Any]) -> dict[str, Any]:
+        logger.info("所有搜索任務已完成，準備生成回應")
+
+        # 添加已嘗試生成回應的標記
+        state["tried_response_generation"] = True
+
+        return state
 
 
 # 創建回應生成Agent實例

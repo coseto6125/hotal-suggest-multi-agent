@@ -142,12 +142,23 @@
             }
         }
         .system-message {
-            color: var(--system-msg-color);
+            text-align: center;
             margin: 10px 0;
-            font-style: italic;
-            text-align: left;
-            padding: 5px 10px;
-            transition: color 0.3s ease;
+            color: var(--system-msg-color);
+            font-size: 0.85rem;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .system-content {
+            display: inline-block;
+        }
+        .system-time {
+            font-size: 0.75rem;
+            color: var(--system-msg-color);
+            opacity: 0.8;
         }
         .message pre {
             white-space: pre-wrap;
@@ -291,12 +302,23 @@
                     return;
                 }
                 
+                // 用於檢查消息是否重複的變量
+                let messageAlreadyDisplayed = false;
+                let messageContent = '';
+                
                 // 處理聊天消息類型
                 if (data.type === "chat_message") {
                     // 隱藏打字指示器
                     typingIndicator.style.display = 'none';
                     
                     const message = data.data;
+                    messageContent = message.content;
+                    
+                    // 檢查是否是最近添加的消息（避免重複）
+                    if (isRecentMessage(messageContent)) {
+                        console.log('忽略重複消息:', messageContent);
+                        return;
+                    }
                     
                     // 根據角色顯示消息
                     if (message.role === "assistant") {
@@ -318,11 +340,16 @@
                     
                     // 如果沒有通過chat_message發送過，則在這裡顯示
                     if (responseData.response && responseData.response.message) {
-                        // 檢查是否已經顯示過這條消息
-                        const lastMessage = chatBox.lastElementChild;
-                        if (!lastMessage || !lastMessage.textContent.includes(responseData.response.message)) {
-                            addMessage(responseData.response.message, 'assistant');
+                        messageContent = responseData.response.message;
+                        
+                        // 檢查是否是最近添加的消息（避免重複）
+                        if (isRecentMessage(messageContent)) {
+                            console.log('忽略重複消息:', messageContent);
+                            return;
                         }
+                        
+                        // 添加消息
+                        addMessage(messageContent, 'assistant');
                     }
                     
                     return;
@@ -384,6 +411,27 @@
             };
         }
         
+        // 用於檢查消息是否最近已經顯示過
+        const recentMessages = [];
+        const MAX_RECENT_MESSAGES = 5;
+        
+        function isRecentMessage(content) {
+            // 檢查最近的消息中是否有相同內容
+            if (recentMessages.includes(content)) {
+                return true;
+            }
+            
+            // 將這條消息添加到最近消息列表
+            recentMessages.push(content);
+            
+            // 保持列表不超過指定長度
+            if (recentMessages.length > MAX_RECENT_MESSAGES) {
+                recentMessages.shift(); // 移除最早的消息
+            }
+            
+            return false;
+        }
+        
         // 獲取當前時間，格式為 HH:MM:SS
         function getCurrentTime() {
             const now = new Date();
@@ -427,7 +475,24 @@
         function addSystemMessage(content) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'system-message';
-            messageDiv.textContent = content;
+            
+            // 創建內容元素
+            const contentSpan = document.createElement('span');
+            contentSpan.className = 'system-content';
+            contentSpan.textContent = content;
+            
+            // 獲取當前時間
+            const currentTime = getCurrentTime();
+            
+            // 創建時間顯示元素
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'system-time';
+            timeSpan.textContent = currentTime;
+            
+            // 添加內容和時間到消息元素
+            messageDiv.appendChild(contentSpan);
+            messageDiv.appendChild(timeSpan);
+            
             chatBox.appendChild(messageDiv);
             chatBox.scrollTop = chatBox.scrollHeight;
         }

@@ -46,7 +46,7 @@ class HotelSearchFuzzyAgent(BaseSubAgent):
             # 這裡只是一個簡單的示例，實際應用中可能需要更複雜的邏輯
             query = context["original_query"]
             # 移除常見的停用詞
-            stop_words = ["我", "想", "要", "找", "一個", "一家", "有", "的", "旅館", "飯店", "酒店", "住宿"]
+            stop_words = ["我", "想", "要", "找", "一個", "一家", "有", "的", "旅館", "飯店", "旅館", "住宿"]
             for word in stop_words:
                 query = query.replace(word, " ")
 
@@ -105,11 +105,11 @@ class HotelSearchFuzzyAgent(BaseSubAgent):
         return await self.process(params)
 
     async def _fuzzy_match(self, params: dict) -> list[dict[str, Any]]:
-        """使用酒店名稱進行模糊匹配"""
+        """使用旅館名稱進行模糊匹配"""
         try:
             hotel_name = params.get("hotel_name", "")
             if not hotel_name:
-                logger.warning("酒店名稱為空，無法進行模糊匹配")
+                logger.warning("旅館名稱為空，無法進行模糊匹配")
                 return []
 
             logger.info(f"使用名稱 '{hotel_name}' 進行模糊匹配")
