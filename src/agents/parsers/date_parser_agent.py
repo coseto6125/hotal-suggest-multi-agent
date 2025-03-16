@@ -28,6 +28,7 @@ class DateParserAgent(BaseAgent):
             # 中文日期格式：X月X號
             re.compile(r"(\d{1,2})月(\d{1,2})號"),
         ]
+        self.err_result = {"error": "日期解析失敗", "err_msg": "不好意思，似乎我沒有找到您的入住日期，可以麻煩您再提供一次嗎？"}
 
     async def process(self, state: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的旅遊日期"""
@@ -36,9 +37,6 @@ class DateParserAgent(BaseAgent):
 
         logger.debug(f"[{self.name}] 開始解析日期")
         try:
-            if not query:
-                raise ValueError("查詢內容為空")
-
             # 嘗試使用正則表達式解析日期
             dates = self._extract_dates_with_regex(query)
 
@@ -61,7 +59,7 @@ class DateParserAgent(BaseAgent):
 
             # 如果都無法解析，返回空值
             if not dates.get("check_in") and not dates.get("check_out"):
-                return {"dates": {}}
+                return self.err_result
 
             # 確保退房日期在入住日期之後
             if dates.get("check_in") and dates.get("check_out"):

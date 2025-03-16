@@ -4,16 +4,10 @@
 
 import re
 from abc import ABC, abstractmethod
-from typing import Any, TypeVar
+from typing import Any
 
 import orjson
 from loguru import logger
-
-# 使用延遲導入，避免循環導入問題
-# from src.services.llm_service import llm_service
-
-# 定義泛型類型，用於表示 LLM 提取的結果類型
-T = TypeVar("T")
 
 
 class BaseAgent(ABC):
@@ -62,10 +56,7 @@ class BaseAgent(ABC):
             try:
                 # 使用正則表達式提取JSON部分
                 json_match = re.search(r"```json\s*([\s\S]*?)\s*```", response)
-                if json_match:
-                    json_str = json_match.group(1)
-                else:
-                    json_str = response
+                json_str = json_match.group(1) if json_match else response
 
                 # 解析JSON
                 result = orjson.loads(json_str)

@@ -16,7 +16,6 @@ class FoodReqParserAgent(BaseAgent):
     def __init__(self):
         """初始化食物需求解析子Agent"""
         super().__init__("FoodReqParserAgent")
-        # TODO: 定義餐食需求相關的正則表達式模式
         self.breakfast_patterns = [
             re.compile(r"(?:早餐|早點|早飯|早上吃的|含早|供應早餐|提供早餐|有早餐|要早餐)"),
             re.compile(r"(?:不要早餐|不含早餐|不需要早餐|沒有早餐)"),
