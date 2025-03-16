@@ -246,13 +246,13 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 )
 
                 # 發送回應
-                if "error" in result:
+                if result.get("error"):
                     logger.error(f"工作流執行錯誤: {result['error']}")
                     await ws_manager.broadcast_chat_message(
                         conversation_id,
                         {
                             "role": "system",
-                            "content": f"處理您的請求時發生錯誤: {result['error']}",
+                            "content": f"處理您的請求時發生錯誤: {result['err_msg']}",
                             "timestamp": asyncio.get_event_loop().time(),
                         },
                     )
