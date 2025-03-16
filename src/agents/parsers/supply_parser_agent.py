@@ -7,10 +7,10 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 
 
-class SupplyParserAgent(BaseSubAgent):
+class SupplyParserAgent(BaseAgent):
     """備品搜尋子Agent"""
 
     def __init__(self):
@@ -187,17 +187,34 @@ class SupplyParserAgent(BaseSubAgent):
             ),
         ]
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢中的房間備品名稱"""
-        logger.info(f"解析查詢中的房間備品名稱: {query}")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """處理設施解析請求"""
+        logger.debug(f"[{self.name}] 開始處理設施解析請求")
 
-        # 使用正則表達式解析備品名稱
-        supply_name = self._extract_supply_with_regex(query)
+        # 從輸入中提取查詢和上下文
+        query = state.get("query", "")
+        context = state.get("context", {})
 
-        # 檢查是否是備品搜尋模式
-        is_supply_search = bool(supply_name)
+        try:
+            if not query:
+                # 如果沒有查詢文本，嘗試從上下文或其他字段獲取信息
+                if "supply_name" in context:
+                    return {"supply_name": context["supply_name"], "is_supply_search": bool(context["supply_name"])}
 
-        return {"supply_name": supply_name, "is_supply_search": is_supply_search}
+                logger.warning("查詢內容為空，無法解析房間備品名稱")
+                return {"supply_name": "", "is_supply_search": False, "message": "查詢內容為空，無法解析房間備品名稱"}
+
+            # 使用正則表達式解析備品名稱
+            supply_name = self._extract_supply_with_regex(query)
+
+            # 檢查是否是備品搜尋模式
+            is_supply_search = bool(supply_name)
+
+            return {"supply_name": supply_name, "is_supply_search": is_supply_search}
+
+        except Exception as e:
+            logger.error(f"[{self.name}] 房間備品名稱解析失敗: {e}")
+            return {"supply_name": "", "is_supply_search": False, "message": f"房間備品名稱解析失敗（錯誤：{e!s}）"}
 
     def _extract_supply_with_regex(self, query: str) -> str:
         """使用正則表達式從查詢中提取備品名稱"""
@@ -226,7 +243,3 @@ class SupplyParserAgent(BaseSubAgent):
                 return supply
 
         return ""
-
-
-# 創建備品搜尋子Agent實例
-supply_parser_agent = SupplyParserAgent()

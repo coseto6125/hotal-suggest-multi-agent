@@ -8,10 +8,10 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 
 
-class DateParserAgent(BaseSubAgent):
+class DateParserAgent(BaseAgent):
     """日期解析子Agent"""
 
     def __init__(self):
@@ -29,8 +29,11 @@ class DateParserAgent(BaseSubAgent):
             re.compile(r"(\d{1,2})月(\d{1,2})號"),
         ]
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的旅遊日期"""
+        query = state.get("query", "")
+        context = state.get("context", {})
+
         logger.debug(f"[{self.name}] 開始解析日期")
         try:
             if not query:
@@ -46,24 +49,29 @@ class DateParserAgent(BaseSubAgent):
                 # 合併結果，優先使用已解析的結果
                 if not dates.get("check_in") and inferred_dates.get("check_in"):
                     dates["check_in"] = inferred_dates["check_in"]
-
                 if not dates.get("check_out") and inferred_dates.get("check_out"):
                     dates["check_out"] = inferred_dates["check_out"]
 
             # 驗證日期的有效性
             self._validate_dates(dates)
 
-            # 如果驗證後仍然沒有有效的日期，使用預設日期
-            if not dates.get("check_in") or not dates.get("check_out"):
-                today = datetime.now()
-                tomorrow = today + timedelta(days=1)
-                day_after_tomorrow = today + timedelta(days=2)
+            logger.info(
+                f"[{self.name}] 解析結果：入住 {dates.get('check_in', '未知')}，退房 {dates.get('check_out', '未知')}"
+            )
 
-                dates = {
-                    "check_in": tomorrow.strftime("%Y-%m-%d"),
-                    "check_out": day_after_tomorrow.strftime("%Y-%m-%d"),
-                    "message": "無法從查詢中提取有效日期，使用預設日期：隔天入住、後天退房",
-                }
+            # 如果都無法解析，返回空值
+            if not dates.get("check_in") and not dates.get("check_out"):
+                return {"dates": {}}
+
+            # 確保退房日期在入住日期之後
+            if dates.get("check_in") and dates.get("check_out"):
+                checkin_date = datetime.strptime(dates["check_in"], "%Y-%m-%d%z")
+                checkout_date = datetime.strptime(dates["check_out"], "%Y-%m-%d%z")
+                if checkin_date >= checkout_date:
+                    # 如果退房日期不在入住日期之後，設置為入住日期後一天
+                    checkout_date = checkin_date + timedelta(days=1)
+                    dates["check_out"] = checkout_date.strftime("%Y-%m-%d")
+                    logger.warning(f"[{self.name}] 退房日期不在入住日期之後，自動調整為：{dates['check_out']}")
 
             return {"dates": dates}
 
@@ -194,7 +202,3 @@ class DateParserAgent(BaseSubAgent):
             except ValueError:
                 logger.error(f"無效的退房日期格式: {dates['check_out']}")
                 dates["check_out"] = None
-
-
-# 創建日期解析子Agent實例
-date_parser_agent = DateParserAgent()

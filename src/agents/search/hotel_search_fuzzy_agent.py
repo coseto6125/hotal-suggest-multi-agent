@@ -8,33 +8,47 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 from src.api.services import hotel_api_service
 
 
-class HotelSearchFuzzyAgent(BaseSubAgent):
+class HotelSearchFuzzyAgent(BaseAgent):
     """旅館模糊搜索子Agent"""
 
     def __init__(self):
         """初始化旅館模糊搜索子Agent"""
         super().__init__("HotelSearchFuzzyAgent")
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢，調用HotelAPIService.fuzzy_match_hotel API"""
-        logger.info(f"調用旅館模糊搜索API: {query}")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """
+        處理模糊旅館搜索請求
+        """
+        try:
+            # 檢查是否有旅館名稱或關鍵字
+            hotel_name = state.get("hotel_name", "")
+            hotel_keyword = state.get("hotel_keyword", "")
 
-        # TODO: 實現旅館模糊搜索API調用邏輯
-        # 從context中提取關鍵字
-        keywords = self._extract_keywords(context)
+            keyword = hotel_name or hotel_keyword
 
-        # 調用API
-        fuzzy_results = await self._fuzzy_match_hotel(keywords)
+            if not keyword:
+                logger.warning("缺少旅館名稱或關鍵字，無法進行模糊搜索")
+                return {
+                    "fuzzy_search_results": [],
+                    "search_type": "none",
+                    "message": "缺少旅館名稱或關鍵字，無法進行模糊搜索",
+                }
 
-        return {"fuzzy_results": fuzzy_results}
+            # 構建搜索參數
+            search_params = {"hotel_name": keyword}
+
+            # 搜索旅館
+            return await self._search_hotels_fuzzy(search_params)
+        except Exception as e:
+            logger.error(f"旅館模糊搜索處理失敗: {e}")
+            return {"fuzzy_search_results": [], "search_type": "error", "message": f"模糊搜索處理失敗: {e!s}"}
 
     def _extract_keywords(self, context: dict[str, Any]) -> list[str]:
         """從context中提取關鍵字"""
-        # TODO: 實現從context中提取關鍵字的邏輯
         keywords = []
 
         # 提取關鍵字
@@ -57,7 +71,6 @@ class HotelSearchFuzzyAgent(BaseSubAgent):
 
     async def _fuzzy_match_hotel(self, keywords: list[str]) -> list[dict[str, Any]]:
         """調用HotelAPIService.fuzzy_match_hotel API"""
-        # TODO: 實現調用HotelAPIService.fuzzy_match_hotel API的邏輯
         if not keywords:
             logger.warning("沒有提供關鍵字，無法進行模糊搜索")
             return []
@@ -74,35 +87,6 @@ class HotelSearchFuzzyAgent(BaseSubAgent):
         except Exception as e:
             logger.error(f"調用旅館模糊搜索API失敗: {e!s}")
             return []
-
-    async def process(self, params: dict[str, Any]) -> dict[str, Any]:
-        """
-        處理旅館模糊搜索
-
-        參數:
-            params (dict): 搜索參數
-                - hotel_name (str): 旅館名稱/關鍵字
-
-        返回:
-            dict: 包含旅館列表的字典，格式為 {"fuzzy_search_results": [...]}
-        """
-        # 確保必要的參數存在
-        if not params.get("hotel_name"):
-            logger.warning("缺少必要的參數 hotel_name")
-            return {"fuzzy_search_results": []}
-
-        # 調用 API 服務模糊搜索旅館
-        try:
-            results = await self._fuzzy_match(params)
-            return {"fuzzy_search_results": results}
-        except Exception as e:
-            logger.error(f"旅館模糊搜索失敗: {e}")
-            return {"fuzzy_search_results": []}
-
-    # 添加 run 方法作為 process 的別名，以兼容 workflow.py 中的調用
-    async def run(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Run 方法，作為 process 方法的別名，用於兼容 workflow.py 中的調用"""
-        return await self.process(params)
 
     async def _fuzzy_match(self, params: dict) -> list[dict[str, Any]]:
         """使用旅館名稱進行模糊匹配"""

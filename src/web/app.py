@@ -136,6 +136,11 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 message = await websocket.receive_json()
                 logger.info(f"收到WebSocket消息: {message}")
 
+                # 處理心跳回應
+                if message.get("type") == "heartbeat_response":
+                    logger.debug(f"收到心跳回應: {conversation_id}")
+                    continue
+
                 # 獲取用戶查詢 - 同時支持message和user_query字段
                 user_query = message.get("user_query", "")
                 if not user_query:
@@ -171,12 +176,73 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
 
                 # 運行工作流
                 logger.info(f"開始處理用戶查詢: {user_query}")
+
+                # 定義進度回調函數
+                async def progress_callback(
+                    stage: str, geo_data: dict[str, Any] | None = None, message: str | None = None
+                ) -> None:
+                    """處理進度回調"""
+                    # 根據階段設置不同的消息
+                    if stage == "parse_query":
+                        content = "正在分析您的需求..."
+                    elif stage == "geo_parse" and geo_data:
+                        locations = geo_data.get("locations", [])
+                        county = geo_data.get("county")
+                        district = geo_data.get("district")
+
+                        location_text = ""
+                        if locations:
+                            location_text = f"地點：{', '.join(locations)}"
+
+                        area_text = ""
+                        if county or district:
+                            parts = []
+                            if county:
+                                parts.append(county)
+                            if district:
+                                parts.append(district)
+                            area_text = f"區域：{' '.join(parts)}"
+
+                        if location_text or area_text:
+                            parts = []
+                            if area_text:
+                                parts.append(area_text)
+                            if location_text:
+                                parts.append(location_text)
+                            content = f"已識別到的地理位置：\n{' | '.join(parts)}"
+                        else:
+                            content = "正在處理地理位置信息..."
+                    elif stage == "search_hotels":
+                        content = "正在搜索符合條件的旅館..."
+                    elif stage == "search_pois":
+                        content = "正在查找周邊景點和設施..."
+                    elif stage == "initial_response" and message:
+                        content = message
+                    elif stage == "final_response":
+                        content = "已完成旅館推薦"
+                    elif stage == "error" and message:
+                        content = f"處理過程中遇到問題: {message}"
+                    else:
+                        content = f"處理中... ({stage})"
+
+                    # 發送進度消息
+                    await ws_manager.broadcast_chat_message(
+                        conversation_id,
+                        {
+                            "role": "system",
+                            "content": content,
+                            "timestamp": asyncio.get_event_loop().time(),
+                            "is_progress": True,
+                        },
+                    )
+
                 result = await run_workflow(
                     {
                         "user_query": user_query,
                         "context": message.get("context", {}),
                         "conversation_id": conversation_id,
-                    }
+                    },
+                    progress_callback,
                 )
 
                 # 發送回應

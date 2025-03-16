@@ -51,7 +51,7 @@ async def test_geo_cache_acceleration():
 
         # 測量解析時間
         start_time = time.time()
-        result = await query_parser_agent.run({"user_query": query})
+        result = await query_parser_agent.process({"user_query": query})
         end_time = time.time()
 
         # 記錄時間和結果

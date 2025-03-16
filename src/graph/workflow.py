@@ -1,6 +1,6 @@
 import asyncio
 import copy
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, TypedDict
 
@@ -9,18 +9,9 @@ from loguru import logger
 from opencc import OpenCC
 from typing_extensions import Annotated
 
+# 引入旅館推薦生成Agent
+from src.agents.generators.hotel_recommendation_agent import HotelRecommendationAgent
 from src.agents.generators.response_generator_agent import ResponseGeneratorAgent
-
-# 導入所有解析器 agents
-from src.agents.parsers.budget_parser_agent import BudgetParserAgent
-from src.agents.parsers.date_parser_agent import DateParserAgent
-from src.agents.parsers.food_req_parser_agent import FoodReqParserAgent
-from src.agents.parsers.geo_parser_agent import GeoParserAgent
-from src.agents.parsers.guest_parser_agent import GuestParserAgent
-from src.agents.parsers.hotel_type_parser_agent import HotelTypeParserAgent
-from src.agents.parsers.keyword_parser_agent import KeywordParserAgent
-from src.agents.parsers.special_req_parser_agent import SpecialReqParserAgent
-from src.agents.parsers.supply_parser_agent import SupplyParserAgent
 
 # 導入所有搜索 agents
 from src.agents.search.hotel_search_agent import HotelSearchAgent
@@ -214,21 +205,27 @@ class HotelRecommendationWorkflow:
 
     def __init__(self):
         """初始化所有agents和工作流圖"""
-        self.budget_parser = BudgetParserAgent()
-        self.date_parser = DateParserAgent()
-        self.geo_parser = GeoParserAgent()
-        self.food_req_parser = FoodReqParserAgent()
-        self.guest_parser = GuestParserAgent()
-        self.hotel_type_parser = HotelTypeParserAgent()
-        self.keyword_parser = KeywordParserAgent()
-        self.special_req_parser = SpecialReqParserAgent()
-        self.supply_parser = SupplyParserAgent()
+        # 從 instances.py 導入解析器延遲加載器
+        from src.agents.parsers.instances import parsers
+
+        # 使用延遲加載器獲取解析器實例
+        self.budget_parser = parsers.budget_parser_agent
+        self.date_parser = parsers.date_parser_agent
+        self.geo_parser = parsers.geo_parser_agent
+        self.food_req_parser = parsers.food_req_parser_agent
+        self.guest_parser = parsers.guest_parser_agent
+        self.hotel_type_parser = parsers.hotel_type_parser_agent
+        self.keyword_parser = parsers.keyword_parser_agent
+        self.special_req_parser = parsers.special_req_parser_agent
+        self.supply_parser = parsers.supply_parser_agent
 
         self.hotel_search = HotelSearchAgent()
         self.hotel_search_fuzzy = HotelSearchFuzzyAgent()
         self.hotel_search_plan = HotelSearchPlanAgent()
 
         self.response_generator = ResponseGeneratorAgent()
+        # 新增旅館推薦生成Agent
+        self.hotel_recommendation = HotelRecommendationAgent()
 
         self.opencc = OpenCC("s2twp")
 
@@ -251,15 +248,22 @@ class HotelRecommendationWorkflow:
             async def wrapped(state: dict[str, Any]) -> dict[str, Any]:
                 try:
                     # 記錄節點名稱和輸入狀態
-                    function_name = func.__qualname__
+                    agent_class = func.__self__.__class__
+                    function_name = agent_class.__name__
                     logger.debug(f"節點執行開始: {function_name}")
                     logger.debug(f"節點輸入狀態: {str(state)[:50]}")
 
-                    # 處理解析器節點
-                    if func.__qualname__.endswith("process_query"):
+                    # 根據節點類型選擇處理方式
+                    if function_name.lower().endswith("parseragent"):
+                        # 解析器節點
                         return await _handle_parser_node(func, state)
-
-                    # 處理搜索節點和其他節點
+                    if function_name.lower().endswith("searchagent"):
+                        # 搜索節點
+                        return await _handle_search_node(func, state)
+                    if function_name.lower() == "responsegeneratoragent":
+                        # 回應生成節點
+                        return await _handle_search_node(func, state)
+                    # 其他節點，預設為搜索節點處理
                     return await _handle_search_node(func, state)
 
                 except Exception as e:
@@ -270,8 +274,10 @@ class HotelRecommendationWorkflow:
             async def _handle_parser_node(func, state: dict[str, Any]) -> dict[str, Any]:
                 # 提取查詢字符串
                 query = state.get("query", "")
-                # 調用解析器函數
-                result = await func(query, {})
+                # 包裝查詢到輸入狀態字典
+                parser_state = {"query": query}
+                # 調用解析器函數，傳入狀態字典
+                result = await func(parser_state)
 
                 # 特殊處理解析器結果
                 if "dates" in result:
@@ -347,27 +353,26 @@ class HotelRecommendationWorkflow:
                 # 調用搜索函數
                 result = await func(state)
 
-                # 標記該搜索已完成
-                function_name = func.__qualname__.split(".")[-1].lower()
+                # 識別節點類型
+                agent_name = func.__self__.__class__.__name__.lower()
                 searcher_type = ""
+                results_key = ""
 
-                if function_name == "run":
-                    agent_name = func.__self__.__class__.__name__.lower()
-                    if agent_name == "hotelsearchagent":
-                        result["hotel_search_done"] = True
-                        searcher_type = "旅館搜索"
-                        results_key = "hotel_search_results"
-                    elif agent_name == "hotelsearchfuzzyagent":
-                        result["fuzzy_search_done"] = True
-                        searcher_type = "旅館模糊搜索"
-                        results_key = "fuzzy_search_results"
-                    elif agent_name == "hotelsearchplanagent":
-                        result["plan_search_done"] = True
-                        searcher_type = "旅館方案搜索"
-                        results_key = "plan_search_results"
-                elif function_name == "_process":
-                    if "responsegeneratoragent" in func.__self__.__class__.__name__.lower():
-                        searcher_type = "回應生成"
+                # 根據 agent 類型標記搜索完成狀態
+                if agent_name == "hotelsearchagent":
+                    result["hotel_search_done"] = True
+                    searcher_type = "旅館搜索"
+                    results_key = "hotel_search_results"
+                elif agent_name == "hotelsearchfuzzyagent":
+                    result["fuzzy_search_done"] = True
+                    searcher_type = "旅館模糊搜索"
+                    results_key = "fuzzy_search_results"
+                elif agent_name == "hotelsearchplanagent":
+                    result["plan_search_done"] = True
+                    searcher_type = "旅館方案搜索"
+                    results_key = "plan_search_results"
+                elif agent_name == "responsegeneratoragent":
+                    searcher_type = "回應生成"
 
                 # 將結果合併回狀態
                 merged_state = dict_merge(state, result)
@@ -378,9 +383,9 @@ class HotelRecommendationWorkflow:
 
                 # 搜索完成後，處理搜索結果
                 if searcher_type in ["旅館搜索", "旅館模糊搜索", "旅館方案搜索"] and results_key in result:
-                    _process_search_results(results_key, result, merged_state, function_name)
+                    _process_search_results(results_key, result, merged_state, agent_name)
 
-                logger.debug(f"節點執行結束: {func.__qualname__}")
+                logger.debug(f"節點執行結束: {agent_name}")
                 logger.debug(f"節點輸出狀態: {str(merged_state)[:30]}")
                 return merged_state
 
@@ -467,22 +472,21 @@ class HotelRecommendationWorkflow:
 
             return wrapped
 
-        # 添加所有節點 - 使用 process_query 而不是 process
-        # builder.add_node("text_entity_parser", node_wrapper(self.text_entity_parser.process_query))
-        builder.add_node("budget_parser", node_wrapper(self.budget_parser.process_query))
-        builder.add_node("date_parser", node_wrapper(self.date_parser.process_query))
-        builder.add_node("geo_parser", node_wrapper(self.geo_parser.process_query))
-        builder.add_node("food_req_parser", node_wrapper(self.food_req_parser.process_query))
-        builder.add_node("guest_parser", node_wrapper(self.guest_parser.process_query))
-        builder.add_node("hotel_type_parser", node_wrapper(self.hotel_type_parser.process_query))
-        builder.add_node("keyword_parser", node_wrapper(self.keyword_parser.process_query))
-        builder.add_node("special_req_parser", node_wrapper(self.special_req_parser.process_query))
-        builder.add_node("supply_parser", node_wrapper(self.supply_parser.process_query))
+        # 添加所有節點 - 使用 process 方法
+        builder.add_node("budget_parser", node_wrapper(self.budget_parser.process))
+        builder.add_node("date_parser", node_wrapper(self.date_parser.process))
+        builder.add_node("geo_parser", node_wrapper(self.geo_parser.process))
+        builder.add_node("food_req_parser", node_wrapper(self.food_req_parser.process))
+        builder.add_node("guest_parser", node_wrapper(self.guest_parser.process))
+        builder.add_node("hotel_type_parser", node_wrapper(self.hotel_type_parser.process))
+        builder.add_node("keyword_parser", node_wrapper(self.keyword_parser.process))
+        builder.add_node("special_req_parser", node_wrapper(self.special_req_parser.process))
+        builder.add_node("supply_parser", node_wrapper(self.supply_parser.process))
 
         # 添加搜索節點
-        builder.add_node("hotel_search", node_wrapper(self.hotel_search.run))
-        builder.add_node("hotel_search_fuzzy", node_wrapper(self.hotel_search_fuzzy.run))
-        builder.add_node("hotel_search_plan", node_wrapper(self.hotel_search_plan.run))
+        builder.add_node("hotel_search", node_wrapper(self.hotel_search.process))
+        builder.add_node("hotel_search_fuzzy", node_wrapper(self.hotel_search_fuzzy.process))
+        builder.add_node("hotel_search_plan", node_wrapper(self.hotel_search_plan.process))
 
         # 添加搜索結果匯總節點
         def search_results_aggregator(state):
@@ -506,60 +510,13 @@ class HotelRecommendationWorkflow:
 
         builder.add_node("search_results_aggregator", search_results_aggregator)
 
-        # 添加回應生成節點
-        builder.add_node("response_generator", node_wrapper(self.response_generator._process))
+        # 添加數據處理節點
+        builder.add_node("response_generator", node_wrapper(self.response_generator.process))
+        # 添加推薦生成節點
+        builder.add_node("hotel_recommendation", node_wrapper(self.hotel_recommendation.process))
 
         # 設置起始節點 - 並行執行所有解析器
         builder.set_entry_point("parse_router")
-
-        # 添加直接搜索調用測試節點，確保一定調用hotel_search.run
-        def direct_hotel_search(state):
-            """直接調用hotel_search的run方法，不經過條件選擇"""
-            logger.info("=== 直接執行旅館搜索節點 ===")
-
-            # 確保基本參數存在
-            if not state.get("county_ids") and not state.get("district_ids"):
-                # 使用默認地區 (例如: 台北市)
-                state["county_ids"] = [1]  # 假設1是台北市
-                logger.warning("使用默認縣市ID: 1 (台北市)")
-
-            if not (state.get("check_in") and state.get("check_out")):
-                # 使用默認日期 (今明兩天)
-                from datetime import datetime, timedelta
-
-                today = datetime.now()
-                tomorrow = today + timedelta(days=1)
-                state["check_in"] = today.strftime("%Y-%m-%d")
-                state["check_out"] = tomorrow.strftime("%Y-%m-%d")
-                logger.warning(f"使用默認日期: {state['check_in']} 到 {state['check_out']}")
-
-            if not state.get("adults", 0) > 0:
-                # 使用默認人數
-                state["adults"] = 2
-                state["children"] = 0
-                logger.warning("使用默認人數: 成人2人，兒童0人")
-
-            try:
-                # 同步調用HotelSearchAgent的run方法
-                import asyncio
-
-                logger.info("直接調用 hotel_search.run 方法")
-                result = asyncio.run(hotel_recommendation_workflow.hotel_search.run(state))
-
-                if result and isinstance(result, dict) and "hotel_search_results" in result:
-                    state["hotel_search_results"] = result["hotel_search_results"]
-                    state["hotel_search_done"] = True
-                    logger.info(f"直接調用得到 {len(result['hotel_search_results'])} 個旅館結果")
-                else:
-                    logger.warning("直接調用沒有返回有效的旅館搜索結果")
-            except Exception as e:
-                logger.error(f"直接調用 hotel_search.run 出錯: {e}")
-
-            # 無論如何標記為已嘗試搜索
-            state["hotel_search_done"] = True
-            return state
-
-        builder.add_node("direct_hotel_search", direct_hotel_search)
 
         # 解析路由節點 - 分發到各個解析器
         def parse_router(state):
@@ -584,7 +541,6 @@ class HotelRecommendationWorkflow:
                 "keyword_parser",
                 "special_req_parser",
                 "supply_parser",
-                "direct_hotel_search",  # 添加直接搜索節點到第一階段
             ]
 
         # 使用條件邊連接parse_router到所有解析器
@@ -608,7 +564,18 @@ class HotelRecommendationWorkflow:
                 logger.error(f"工作流執行錯誤: {state['error']}")
                 return ["response_generator"]
 
-            # 檢查關鍵字搜索條件：G -> K
+            # 獲取當前搜索重試次數，預設為0
+            retry_count = state.get("search_retry_count", 0)
+            # 設置最大重試次數
+            MAX_SEARCH_RETRIES = 2
+
+            # 檢查是否已達到最大重試次數，如果是則直接進入結果匯總階段
+            if retry_count >= MAX_SEARCH_RETRIES:
+                logger.warning(f"已達到最大重試次數 ({MAX_SEARCH_RETRIES})，不再嘗試搜索")
+                state["message"] = f"未找到完全符合條件的旅館，已嘗試 {retry_count} 次。以下是最接近的結果。"
+                return ["search_results_aggregator"]
+
+            # 檢查關鍵字搜索條件：是否有關鍵字且未執行過模糊搜索
             keyword_ready = state.get("keyword_parsed", False) and state.get("hotel_keyword")
             if keyword_ready and not state.get("fuzzy_search_done", False):
                 # 將 hotel_keyword 映射到 hotel_name，以便 hotel_search_fuzzy_agent 使用
@@ -616,7 +583,7 @@ class HotelRecommendationWorkflow:
                 logger.info("添加旅館模糊搜索到執行清單")
                 to_execute.append("hotel_search_fuzzy")
 
-            # 檢查方案搜索條件：G+B -> L
+            # 檢查方案搜索條件：是否有關鍵字和日期且未執行過方案搜索
             plan_search_ready = (
                 keyword_ready
                 and state.get("date_parsed", False)
@@ -630,23 +597,92 @@ class HotelRecommendationWorkflow:
                 logger.info("添加旅館方案搜索到執行清單")
                 to_execute.append("hotel_search_plan")
 
-            # 如果所有搜索都已完成，或確實沒有任何搜索條件可以執行，則進入結果匯總階段
-            if not to_execute or (
-                state.get("hotel_search_done", False)
-                and state.get("fuzzy_search_done", False)
-                and state.get("plan_search_done", False)
-            ):
-                # 如果沒有任何搜索結果，可能是條件太嚴格或數據有誤，強制再次執行旅館搜索
-                if (
-                    not state.get("hotel_search_results")
-                    and not state.get("fuzzy_search_results")
-                    and not state.get("plan_search_results")
-                ):
-                    logger.warning("沒有搜索結果，強制再次執行旅館搜索")
-                    to_execute.append("hotel_search")
-                    return to_execute
+            # 檢查是否有基本的地理位置信息，確保可以執行基本搜索
+            has_geo_data = False
 
-                logger.info("沒有搜索需要執行或所有搜索已完成，進入結果匯總階段")
+            # 檢查來源於各種可能的地理位置資訊
+            if state.get("geo_data") and state.get("geo_data", {}).get("county_id"):
+                has_geo_data = True
+                # 將基本搜索參數加入到狀態中
+                county_id = state.get("geo_data", {}).get("county_id", 0)
+                logger.info(f"從 geo_data 獲取縣市ID: {county_id}")
+            elif state.get("destination", {}).get("county"):
+                county_id = state.get("destination", {}).get("county")
+                has_geo_data = bool(county_id)
+                logger.info(f"從 destination 獲取縣市ID: {county_id}")
+            elif state.get("county_ids"):
+                county_id = state.get("county_ids", [0])[0]
+                has_geo_data = bool(county_id)
+                logger.info(f"從 county_ids 獲取縣市ID: {county_id}")
+            else:
+                logger.warning("缺少縣市ID，無法執行基本旅館搜索")
+
+            # 如果有地理位置資訊，設置基本搜索參數
+            if has_geo_data:
+                # 設置基本搜索參數
+                search_params = {
+                    "county_id": county_id,
+                    "check_in": state.get("check_in", datetime.now().strftime("%Y-%m-%d")),
+                    "check_out": state.get("check_out", (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")),
+                    "adults": state.get("adults", 2),
+                    "children": state.get("children", 0),
+                    "lowest_price": state.get("lowest_price", 0),
+                    "highest_price": state.get("highest_price", 0),
+                }
+
+                # 添加到狀態中
+                state["hotel_search_params"] = search_params
+                logger.info(f"已準備基本搜索參數: {search_params}")
+
+            # 輸出搜索條件日誌
+            logger.info(
+                f"搜索條件: has_geo_data={has_geo_data}, hotel_search_done={state.get('hotel_search_done', False)}"
+            )
+
+            # 如果有地理位置信息且還沒有執行過基本搜索，添加到執行清單
+            if has_geo_data and not state.get("hotel_search_done", False):
+                logger.info("添加基本旅館搜索到執行清單")
+                to_execute.append("hotel_search")
+
+            # 如果所有搜索都已完成，或確實沒有任何搜索條件可以執行
+            all_searches_done = (
+                (state.get("hotel_search_done", False) or not has_geo_data)
+                and (state.get("fuzzy_search_done", False) or not keyword_ready)
+                and (state.get("plan_search_done", False) or not plan_search_ready)
+            )
+
+            # 檢查是否有任何搜索結果
+            has_any_results = (
+                bool(state.get("hotel_search_results"))
+                or bool(state.get("fuzzy_search_results"))
+                or bool(state.get("plan_search_results"))
+            )
+
+            # 如果所有搜索都已完成，或確實沒有任何搜索條件可以執行
+            if all_searches_done or not to_execute:
+                # 如果沒有任何搜索結果，且未達到最大重試次數，嘗試放寬條件執行基本搜索
+                if not has_any_results and retry_count < MAX_SEARCH_RETRIES:
+                    # 增加重試計數
+                    state["search_retry_count"] = retry_count + 1
+                    logger.warning(
+                        f"沒有搜索結果，嘗試放寬條件執行旅館搜索 (重試 {state['search_retry_count']}/{MAX_SEARCH_RETRIES})"
+                    )
+
+                    # 如果有任何縣市ID，重置搜索完成標記並執行基本搜索
+                    if has_geo_data:
+                        # 重置搜索完成標記
+                        state["hotel_search_done"] = False
+                        logger.info("重試搜索，準備使用放寬條件")
+                        return ["hotel_search"]
+                    # 沒有任何地理資訊可用，直接進入結果匯總階段
+                    logger.info("沒有足夠的搜索條件，進入結果匯總階段")
+                    return ["search_results_aggregator"]
+
+                # 如果已經有結果或者已達到最大重試次數，進入結果匯總階段
+                if not has_any_results and retry_count >= MAX_SEARCH_RETRIES:
+                    state["message"] = f"未找到符合條件的旅館，請嘗試調整搜索條件。(已嘗試 {retry_count} 次)"
+
+                logger.info("所有搜索已完成或達到最大重試次數，進入結果匯總階段")
                 return ["search_results_aggregator"]
 
             logger.info(f"將執行以下搜索節點: {to_execute}")
@@ -673,18 +709,57 @@ class HotelRecommendationWorkflow:
         for searcher in ["hotel_search", "hotel_search_fuzzy", "hotel_search_plan"]:
             builder.add_edge(searcher, "search_results_aggregator")
 
-        # 同時將搜索節點連回搜索路由，形成循環
+        # 添加條件邊檢查函數 - 從搜索節點到路由節點
+        def search_to_router_condition(state):
+            """
+            決定是否需要將搜索節點連回搜索路由進行循環處理。
+            僅在有明確需要重新搜索的情況下才返回 True，否則直接進入匯總階段。
+
+            返回:
+                list: 如果需要重新搜索則返回 ["search_router"]，否則返回 ["search_results_aggregator"]
+            """
+            # 獲取重試次數
+            retry_count = state.get("search_retry_count", 0)
+            max_retries = 2
+
+            # 檢查是否有搜索結果
+            has_results = (
+                bool(state.get("hotel_search_results"))
+                or bool(state.get("fuzzy_search_results"))
+                or bool(state.get("plan_search_results"))
+            )
+
+            # 只有在未達到最大重試次數且沒有結果的情況下才繼續循環
+            if retry_count < max_retries and not has_results:
+                # 檢查是否有其他搜索條件可以嘗試
+                has_other_search_options = (not state.get("fuzzy_search_done") and state.get("hotel_keyword")) or (
+                    not state.get("plan_search_done") and state.get("check_in") and state.get("check_out")
+                )
+
+                if has_other_search_options:
+                    logger.info(f"搜索未完成且有其他選項可用，重新進入搜索路由 (重試 {retry_count}/{max_retries})")
+                    return ["search_router"]
+
+            # 默認進入結果匯總階段
+            logger.info("搜索已完成或達到最大重試次數，進入結果匯總階段")
+            return ["search_results_aggregator"]
+
+        # 為每個搜索節點添加條件邊
         for searcher in ["hotel_search", "hotel_search_fuzzy", "hotel_search_plan"]:
-            builder.add_edge(searcher, "search_router")
+            # 刪除原有的直接邊
+            # builder.add_edge(searcher, "search_router")
 
-        # 將直接搜索節點連接到搜索階段路由
-        builder.add_edge("direct_hotel_search", "search_router")
+            # 添加條件邊 - 修正條件邊設置方式
+            builder.add_conditional_edges(searcher, search_to_router_condition)
 
-        # 將結果匯總節點連接到回應生成
+        # 將結果匯總節點連接到回應生成，改為先連接到response_generator
         builder.add_edge("search_results_aggregator", "response_generator")
 
-        # 設置終點
-        builder.add_edge("response_generator", END)
+        # 將response_generator連接到hotel_recommendation
+        builder.add_edge("response_generator", "hotel_recommendation")
+
+        # 將hotel_recommendation連接到終點
+        builder.add_edge("hotel_recommendation", END)
 
         # 編譯工作流
         return builder.compile()
@@ -770,21 +845,33 @@ hotel_recommendation_workflow = HotelRecommendationWorkflow()
 
 
 # 添加 run_workflow 函數，作為 hotel_recommendation_workflow.run 的包裝函數
-async def run_workflow(data: dict) -> dict:
+async def run_workflow(data: dict | str, progress_callback: callable = None) -> dict:
     """
     運行工作流的包裝函數
 
     參數:
-        data (dict): 包含用戶查詢和上下文信息的字典
-            - user_query (str): 用戶查詢
-            - context (dict): 上下文信息
-            - conversation_id (str): 對話ID
+        data (dict | str): 包含用戶查詢和上下文信息的字典或直接是查詢字符串
+            - 如果是字典，應包含:
+              - user_query (str): 用戶查詢
+              - context (dict): 上下文信息
+              - conversation_id (str): 對話ID
+            - 如果是字符串，則直接作為用戶查詢
+        progress_callback (callable): 進度回調函數，用於報告處理進度
 
     返回:
         dict: 工作流運行結果
     """
-    user_query = data.get("user_query", "")
-    conversation_id = data.get("conversation_id", "")
+    import asyncio
+
+    # 處理不同類型的輸入
+    if isinstance(data, str):
+        user_query = data
+        conversation_id = ""
+        context = {}
+    else:
+        user_query = data.get("user_query", "")
+        conversation_id = data.get("conversation_id", "")
+        context = data.get("context", {})
 
     # 檢查查詢是否為空
     if not user_query:
@@ -795,12 +882,51 @@ async def run_workflow(data: dict) -> dict:
     query = hotel_recommendation_workflow.opencc.convert(user_query)
     logger.info(f"處理用戶查詢: {query}, 對話ID: {conversation_id}")
 
-    # 直接調用工作流執行，傳入必要參數
+    # 如果有進度回調，報告開始解析查詢
+    if progress_callback:
+        await progress_callback("parse_query")
+
+    # 設置超時時間（30秒）
+    WORKFLOW_TIMEOUT = 30.0
+
+    # 使用asyncio.wait_for添加超時機制
     try:
-        result = await hotel_recommendation_workflow.run(
-            query=query, conversation_id=conversation_id, user_query=user_query
+        # 使用超時機制運行工作流
+        result = await asyncio.wait_for(
+            hotel_recommendation_workflow.run(query=query, conversation_id=conversation_id, user_query=user_query),
+            timeout=WORKFLOW_TIMEOUT,
         )
+
+        # 如果有進度回調，報告處理完成
+        if progress_callback:
+            await progress_callback("final_response")
+
         return result
+    except TimeoutError:
+        logger.error(f"工作流執行超時 ({WORKFLOW_TIMEOUT}秒)")
+
+        # 如果有進度回調，報告超時錯誤
+        if progress_callback:
+            await progress_callback("error", message=f"處理查詢超時 ({WORKFLOW_TIMEOUT}秒)")
+
+        return {
+            "error": f"處理查詢超時 ({WORKFLOW_TIMEOUT}秒)",
+            "text_response": "很抱歉，處理您的查詢花費時間過長，請嘗試更簡單的查詢或稍後再試。",
+        }
     except Exception as e:
         logger.error(f"工作流執行失敗: {e}")
-        return {"error": str(e), "text_response": "很抱歉，處理您的查詢時發生錯誤。請稍後再試。"}
+
+        # 獲取更詳細的錯誤信息
+        import traceback
+
+        error_detail = traceback.format_exc()
+        logger.error(f"詳細錯誤信息:\n{error_detail}")
+
+        # 如果有進度回調，報告錯誤
+        if progress_callback:
+            await progress_callback("error", message=str(e))
+
+        return {
+            "error": str(e),
+            "text_response": f"很抱歉，處理您的查詢時發生錯誤: {e}",
+        }

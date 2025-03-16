@@ -163,13 +163,13 @@ class TestDateParserAgent(unittest.TestCase):
         # 如果需要運行，取消下面的註釋
         # self.loop.run_until_complete(self._async_test_extract_dates_with_llm())
 
-    async def _async_test_process_query(self):
+    async def _async_test_process(self):
         """測試處理查詢（異步測試輔助方法）"""
         # 測試完整的查詢處理流程
         test_cases = [f"我想在{self.future_date1}入住，{self.future_date2}退房", "明天有空房嗎", "下週想訂房"]
 
         for query in test_cases:
-            result = await self.agent._process_query(query, {})
+            result = await self.agent._process(query, {})
             self.assertIn("dates", result)
             dates = result["dates"]
             self.assertIn("check_in", dates)
@@ -181,12 +181,12 @@ class TestDateParserAgent(unittest.TestCase):
             if dates["check_out"]:
                 datetime.strptime(dates["check_out"], "%Y-%m-%d")
 
-    def test_process_query(self):
+    def test_process(self):
         """測試處理查詢（同步包裝）"""
         # 跳過此測試，因為它可能需要調用LLM服務
         self.skipTest("此測試可能需要調用LLM服務，跳過")
         # 如果需要運行，取消下面的註釋
-        # self.loop.run_until_complete(self._async_test_process_query())
+        # self.loop.run_until_complete(self._async_test_process())
 
     def test_integration(self):
         """集成測試：測試各種日期表達方式的解析"""

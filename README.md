@@ -6,16 +6,30 @@
 
 本系統採用LangGraph框架實現多Agent協作，主要包含以下組件：
 
-1. **查詢解析Agent**：負責解析用戶的自然語言查詢，提取關鍵參數。
-2. **旅館搜索Agent**：負責根據解析後的參數搜索符合條件的旅館。
-3. **周邊地標搜索Agent**：負責搜索旅館周邊的景點、餐廳和交通信息。
-4. **回應生成Agent**：負責整合所有信息，生成最終的回應。
-5. **地理資料快取**：存儲台灣縣市鄉鎮等地理資料，加速查詢解析過程。
+1. **解析類Agent群組**：由多個專門的解析Agent組成，包括：
+
+   - 日期解析
+   - 預算解析
+   - 地理位置解析
+   - 住客資訊解析
+   - 旅館類型解析
+   - 關鍵字解析
+   - 特殊需求解析
+   - 餐飲需求解析
+   - 供應商資訊解析
+2. **搜索類Agent群組**：
+
+   - 旅館搜索Agent
+   - 旅館模糊搜索Agent
+   - 旅館方案搜索Agent
+   - 周邊景點搜索Agent
+3. **回應生成Agent**：負責整合所有信息，生成最終的回應。
+4. **地理資料快取**：存儲台灣縣市鄉鎮等地理資料，加速查詢解析過程。
 
 系統工作流程如下：
 
 ```
-用戶查詢 -> 查詢解析(使用地理資料快取) -> 旅館搜索 -> 初步回應 -> 周邊地標搜索 -> 最終回應
+用戶查詢 -> 查詢解析(多個專門解析Agent並行處理) -> 旅館搜索 -> 初步回應 -> 周邊地標搜索 -> 最終回應
 ```
 
 ## 特點
@@ -33,7 +47,7 @@
 - **LangGraph**：多Agent協作框架
 - **FastAPI**：Web服務框架
 - **WebSocket**：實時通信
-- **Pydantic**：數據驗證
+- **Pydantic v2**：數據驗證
 - **aiohttp**：異步HTTP客戶端
 - **loguru**：日誌記錄
 - **orjson**：高性能JSON處理
@@ -95,7 +109,7 @@ python main.py
 - `POST /api/chat`：聊天API
 - `WebSocket /ws/chat/{conversation_id}`：WebSocket聊天
 
-## 開發指南
+## 系統架構解析
 
 ### 目錄結構
 
@@ -109,19 +123,15 @@ python main.py
 │   │   └── services.py     # API服務
 │   ├── agents/             # Agent模塊
 │   │   ├── base/           # 基礎Agent類
-│   │   │   ├── base_agent.py
-│   │   │   ├── base_sub_agent.py
-│   │   │   └── orchestrator_agent.py
 │   │   ├── parsers/        # 解析類Agent
-│   │   │   ├── query_parser_agent.py
-│   │   │   ├── date_parser_agent.py
 │   │   │   ├── budget_parser_agent.py
+│   │   │   ├── date_parser_agent.py 
+│   │   │   ├── food_req_parser_agent.py
 │   │   │   ├── geo_parser_agent.py
 │   │   │   ├── guest_parser_agent.py
 │   │   │   ├── hotel_type_parser_agent.py
 │   │   │   ├── keyword_parser_agent.py
 │   │   │   ├── special_req_parser_agent.py
-│   │   │   ├── food_req_parser_agent.py
 │   │   │   └── supply_parser_agent.py
 │   │   ├── search/         # 搜索類Agent
 │   │   │   ├── hotel_search_agent.py
@@ -131,134 +141,112 @@ python main.py
 │   │   └── generators/     # 生成類Agent
 │   │       └── response_generator_agent.py
 │   ├── cache/              # 快取模塊
-│   │   ├── geo_cache.py    # 地理資料快取
-│   │   └── cache_manager.py # 快取管理器
+│   │   └── geo_cache.py    # 地理資料快取
+│   ├── controllers/        # 控制器模塊
+│   ├── di/                 # 依賴注入模塊
 │   ├── graph/              # LangGraph模塊
 │   │   └── workflow.py     # 工作流定義
 │   ├── models/             # 數據模型
 │   │   └── schemas.py      # 數據結構定義
+│   ├── protocols/          # 協議模塊
 │   ├── services/           # 服務模塊
 │   │   └── llm_service.py  # LLM服務
 │   ├── utils/              # 工具模塊
 │   ├── web/                # Web模塊
 │   │   ├── app.py          # FastAPI應用
+│   │   ├── websocket.py    # WebSocket處理
+│   │   ├── websocket_handler.py # WebSocket處理程序
 │   │   ├── static/         # 靜態文件
 │   │   └── templates/      # HTML模板
 │   └── config.py           # 配置模塊
 └── tests/                  # 測試模塊
 ```
 
-### Agent 模組說明
+### 核心模塊說明
 
-系統中的 Agent 分為以下幾個主要類別：
+#### 1. 配置管理 (`src/config.py`)
 
-1. **基礎類 Agent**
-   - `BaseAgent`: 所有 Agent 的基礎類別
-   - `BaseSubAgent`: 子 Agent 的基礎類別
-   - `OrchestratorAgent`: 協調器 Agent，負責協調其他 Agent 的工作
+包含系統所有配置項目，主要分為：
 
-2. **解析類 Agent**
-   - `QueryParserAgent`: 解析用戶查詢
-   - `DateParserAgent`: 解析日期相關資訊
-   - `BudgetParserAgent`: 解析預算相關資訊
-   - `GeoParserAgent`: 解析地理位置資訊
-   - `GuestParserAgent`: 解析住客資訊
-   - `HotelTypeParserAgent`: 解析旅館類型
-   - `KeywordParserAgent`: 解析關鍵字
-   - `SpecialReqParserAgent`: 解析特殊需求
-   - `FoodReqParserAgent`: 解析餐飲需求
-   - `SupplyParserAgent`: 解析供應商資訊
+- API配置：API端點、密鑰等
+- LLM配置：LLM提供商選擇
+- Ollama配置：本地LLM模型設定
+- 系統配置：超時、重試次數等
+- FastAPI配置：主機、端口等
 
-3. **搜索類 Agent**
-   - `HotelSearchAgent`: 基本旅館搜索
-   - `HotelSearchFuzzyAgent`: 模糊旅館搜索
-   - `HotelSearchPlanAgent`: 旅館方案搜索
-   - `POISearchAgent`: 景點搜索
+#### 2. Agent架構
 
-4. **生成類 Agent**
-   - `ResponseGeneratorAgent`: 生成回應內容
+系統採用多層次Agent架構，每個Agent專注於特定任務：
 
-### 擴展指南
+**解析類Agent**：分別負責解析不同類型的用戶需求：
 
-1. **添加新的Agent**：
+- 日期解析：處理入住/退房日期
+- 預算解析：處理價格預算範圍
+- 地理位置解析：處理地點資訊
+- 住客解析：處理旅客人數、組成等信息
+- 旅館類型解析：處理旅館類型偏好
+- 關鍵字解析：處理其他關鍵詞信息
+- 特殊需求解析：處理特殊要求
+- 餐飲需求解析：處理餐飲相關需求
+- 供應商解析：處理特定供應商偏好
 
-   - 在 `src/agents/`目錄下創建新的Agent類
-   - 繼承 `BaseAgent`類
-   - 實現 `_process`方法
-2. **修改工作流**：
+**搜索類Agent**：
 
-   - 在 `src/graph/workflow.py`中修改工作流定義
-3. **添加新的API服務**：
+- 旅館搜索：基本旅館搜索功能
+- 旅館模糊搜索：處理不完整條件下的搜索
+- 旅館方案搜索：搜索特定方案
+- 景點搜索：搜索周邊景點
 
-   - 在 `src/api/services.py`中添加新的API服務類
+**生成類Agent**：
+
+- 回應生成：綜合所有信息，生成流暢的回應
+
+#### 3. 地理資料快取 (`src/cache/geo_cache.py`)
+
+預加載並快取台灣的地理資料，減少運行時查詢負擔：
+
+- 縣市資料
+- 鄉鎮區資料
+- 地理座標資料
+
+#### 4. 工作流程定義 (`src/graph/workflow.py`)
+
+使用LangGraph框架定義整個系統的工作流程：
+
+- 定義節點之間的關係
+- 處理並行任務
+- 管理條件分支
+- 錯誤處理與重試機制
+
+#### 5. Web界面 (`src/web/`)
+
+提供用戶界面和API端點：
+
+- FastAPI應用服務
+- WebSocket實時通信
+- 靜態資源和模板
 
 ## 開發進度
 
-### 基本框架建構
+### 已完成
 
-- [X] 專案結構設定
+- [X] 基礎框架設定與專案結構
 - [X] 配置管理系統
-- [X] 日誌系統
-- [X] 環境變數設定
+- [X] LLM服務整合 (OpenAI & Ollama)
+- [X] Agent定義與實現
+  - [X] 解析類Agent群組
+  - [X] 搜索類Agent群組
+  - [X] 回應生成Agent
+- [X] 地理資料快取系統
+- [X] LangGraph工作流定義
+- [X] FastAPI後端服務
+- [X] WebSocket支援
 
-### LLM 服務整合
+### 進行中
 
-- [X] OpenAI 整合
-- [X] Ollama 整合
-- [X] 非同步回應生成
-
-### Agent 定義與實現
-
-- [X] 查詢解析 Agent
-- [ ] 旅館搜索 Agent
-- [ ] 景點搜索 Agent
-- [ ] 回應生成 Agent
-
-### 快取系統實現
-
-- [ ] 地理資料快取設計
-- [ ] 縣市鄉鎮資料預加載
-- [ ] 快取更新機制
-- [ ] 快取查詢優化
-
-### LangGraph 工作流實現
-
-- [X] 工作流架構設計
-- [ ] 節點間狀態傳遞
-- [ ] 條件分支處理
-- [ ] 錯誤處理機制
-
-### API 客戶端實現
-
-- [ ] 旅館資料 API 整合
-- [ ] 景點資料 API 整合
-- [ ] 請求重試機制
-- [ ] 資料快取策略
-
-### FastAPI 後端服務
-
-- [X] 基本路由設定
-- [X] WebSocket 支援
-- [ ] 請求處理與回應生成
-- [ ] 錯誤處理與日誌記錄
-
-### 漸進式回應策略
-
-- [ ] 初步回應生成
-- [ ] 流式回應處理
-- [ ] 超時處理機制
-
-### 測試與優化
-
-- [X] 單元測試框架設定
-- [ ] Agent 功能測試
-- [ ] 工作流整合測試
-- [ ] 效能優化
-
-
-## 貢獻指南
-
-歡迎提交Pull Request或Issue。
+- [ ] 測試與性能優化
+- [ ] 各類解析調優
+- [ ] 更多API整合
 
 ## 許可證
 

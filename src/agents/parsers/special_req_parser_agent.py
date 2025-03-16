@@ -7,10 +7,10 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 
 
-class SpecialReqParserAgent(BaseSubAgent):
+class SpecialReqParserAgent(BaseAgent):
     """特殊需求解析子Agent"""
 
     def __init__(self):
@@ -108,30 +108,70 @@ class SpecialReqParserAgent(BaseSubAgent):
         self.lunch_pattern = re.compile(r"(?:含|有|帶|提供|供應|免費)(?:午餐|午飯|中餐)")
         self.dinner_pattern = re.compile(r"(?:含|有|帶|提供|供應|免費)(?:晚餐|晚飯|夜餐)")
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢中的特殊需求"""
-        logger.info(f"解析查詢中的特殊需求: {query}")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """處理特殊需求解析請求"""
+        logger.debug(f"[{self.name}] 開始處理特殊需求解析請求")
 
-        # 使用正則表達式解析特殊需求
-        special_reqs = self._extract_special_reqs_with_regex(query)
+        # 從輸入中提取查詢和上下文
+        query = state.get("query", "")
+        context = state.get("context", {})
 
-        # 使用LLM增強解析結果
-        llm_reqs = await self._extract_special_reqs_with_llm(query)
+        try:
+            if not query:
+                # 如果沒有查詢文本，嘗試從上下文或其他字段獲取信息
+                if "special_requirements" in context:
+                    return {
+                        "hotel_facility_ids": context.get("hotel_facility_ids", []),
+                        "room_facility_ids": context.get("room_facility_ids", []),
+                        "has_breakfast": context.get("has_breakfast", False),
+                        "has_lunch": context.get("has_lunch", False),
+                        "has_dinner": context.get("has_dinner", False),
+                        "special_requirements": context.get("special_requirements", []),
+                    }
 
-        # 合併結果
-        special_reqs.update(llm_reqs)
+                logger.warning("查詢內容為空，無法解析特殊需求")
+                return {
+                    "hotel_facility_ids": [],
+                    "room_facility_ids": [],
+                    "has_breakfast": False,
+                    "has_lunch": False,
+                    "has_dinner": False,
+                    "special_requirements": [],
+                    "message": "查詢內容為空，無法解析特殊需求",
+                }
 
-        # 構建結果
-        result = {
-            "hotel_facility_ids": special_reqs.get("hotel_facilities", []),
-            "room_facility_ids": special_reqs.get("room_facilities", []),
-            "has_breakfast": special_reqs.get("has_breakfast", False),
-            "has_lunch": special_reqs.get("has_lunch", False),
-            "has_dinner": special_reqs.get("has_dinner", False),
-            "special_requirements": special_reqs.get("special_requirements", []),
-        }
+            # 使用正則表達式解析特殊需求
+            special_reqs = self._extract_special_reqs_with_regex(query)
 
-        return result
+            # 使用LLM增強解析結果
+            llm_reqs = await self._extract_special_reqs_with_llm(query)
+
+            # 合併結果
+            special_reqs.update(llm_reqs)
+
+            # 構建結果
+            result = {
+                "hotel_facility_ids": special_reqs.get("hotel_facilities", []),
+                "room_facility_ids": special_reqs.get("room_facilities", []),
+                "has_breakfast": special_reqs.get("has_breakfast", False),
+                "has_lunch": special_reqs.get("has_lunch", False),
+                "has_dinner": special_reqs.get("has_dinner", False),
+                "special_requirements": special_reqs.get("special_requirements", []),
+            }
+
+            return result
+
+        except Exception as e:
+            logger.error(f"[{self.name}] 特殊需求解析失敗: {e}")
+            return {
+                "hotel_facility_ids": [],
+                "room_facility_ids": [],
+                "has_breakfast": False,
+                "has_lunch": False,
+                "has_dinner": False,
+                "special_requirements": [],
+                "message": f"特殊需求解析失敗（錯誤：{e!s}）",
+            }
 
     def _extract_special_reqs_with_regex(self, query: str) -> dict[str, Any]:
         """使用正則表達式從查詢中提取特殊需求"""
@@ -242,7 +282,3 @@ class SpecialReqParserAgent(BaseSubAgent):
         except Exception as e:
             logger.error(f"[{self.name}] LLM特殊需求解析失敗: {e}")
             return {"error": str(e)}
-
-
-# 創建特殊需求解析子Agent實例
-special_req_parser_agent = SpecialReqParserAgent()

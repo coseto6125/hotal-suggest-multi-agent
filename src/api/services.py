@@ -2,6 +2,8 @@
 API 服務，封裝各種API調用
 """
 
+import aiofiles
+from orjson import loads
 from src.api.client import api_client
 
 
@@ -199,6 +201,66 @@ class HotelAPIService:
         """
         endpoint = "/api/v3/tools/interview_test/taiwan_hotels/hotel/detail"
         return await api_client.get(endpoint, params)
+
+    async def search_hotels(self, params: dict) -> list:
+        """
+        搜索旅館，整合多個API調用
+
+        Args:
+            params: 搜索參數，可以包含以下字段：
+                - hotel_keyword (str): 旅館名稱/關鍵字
+                - county_ids (int): 城市 ID
+                - district_ids (list): 鄉鎮區 ID 列表
+                - check_in (str): 入住日期 (ex. 2025-01-01)
+                - check_out (str): 退房日期 (ex. 2025-01-03)
+                - adults (int): 成人數
+                - children (int): 兒童數
+                - budget_min (int): 最低價格
+                - budget_max (int): 最高價格
+                - hotel_facility_ids (list): 旅館設施 ID 列表
+                - room_types (list): 房型 ID 列表
+                - room_facility_ids (list): 房間設施 ID 列表
+                - has_breakfast (str, int or float): 是否有早餐
+                - has_lunch (str, int or float): 是否有午餐
+                - has_dinner (str, int or float): 是否有晚餐
+
+        Returns:
+            搜索結果列表
+        """
+        # 構建搜索參數
+        search_params = {}
+
+        # 複製有效參數
+        valid_keys = [
+            "check_in",
+            "check_out",
+            "adults",
+            "children",
+            "county_ids",
+            "district_ids",
+            "hotel_facility_ids",
+            "room_types",
+            "room_facility_ids",
+            "has_breakfast",
+            "has_lunch",
+            "has_dinner",
+        ]
+
+        for key in valid_keys:
+            if key in params and params[key] is not None:
+                search_params[key] = params[key]
+
+        # 處理預算範圍
+        if "budget_min" in params and params["budget_min"] is not None:
+            search_params["lowest_price"] = params["budget_min"]
+        if "budget_max" in params and params["budget_max"] is not None:
+            search_params["highest_price"] = params["budget_max"]
+
+        # 執行搜索
+        # results = await self.search_hotel_vacancies(search_params)
+        async with aiofiles.open("hotel_search_system/cache/new.json", "r", encoding="utf-8") as f:
+            results = loads(await f.read())
+        return results
 
 
 class POIAPIService:

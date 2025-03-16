@@ -8,23 +8,20 @@ from loguru import logger
 
 from src.agents.base.base_agent import BaseAgent
 from src.cache.geo_cache import geo_cache
+from src.web.websocket import ws_manager
 
 
 class ResponseGeneratorAgent(BaseAgent):
-    """回應生成Agent"""
+    """回應生成Agent - 負責處理和清洗旅館數據，並將其發送給前端"""
 
     def __init__(self):
         """初始化回應生成Agent"""
         super().__init__("ResponseGeneratorAgent")
         self.logger = logger
 
-    async def process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢並生成回應"""
-        return await self._process({"original_query": query, **context})
-
-    async def _process(self, state: dict) -> dict:
-        """處理生成回應的方法"""
-        self.logger.info("開始生成回應")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """處理生成回應的方法 - 清洗數據並準備回應"""
+        self.logger.info("開始清洗和整理旅館數據")
 
         # 添加更詳細的日誌記錄
         self.logger.debug(f"回應生成器收到的完整輸入狀態: {str(state)[:50]}")
@@ -33,17 +30,12 @@ class ResponseGeneratorAgent(BaseAgent):
         hotel_search_results = state.get("hotel_search_results", [])
         fuzzy_search_results = state.get("fuzzy_search_results", [])
         plan_search_results = state.get("plan_search_results", [])
+        conversation_id = state.get("conversation_id", "")
 
         # 記錄詳細的輸入數據類型和值
-        self.logger.debug(
-            f"收到的hotel_search_results類型: {type(hotel_search_results)}, 值: {str(hotel_search_results)[:30]}"
-        )
-        self.logger.debug(
-            f"收到的fuzzy_search_results類型: {type(fuzzy_search_results)}, 值: {str(fuzzy_search_results)[:30]}"
-        )
-        self.logger.debug(
-            f"收到的plan_search_results類型: {type(plan_search_results)}, 值: {str(plan_search_results)[:30]}"
-        )
+        self.logger.debug(f"收到的hotel_search_results: {len(hotel_search_results)}間 旅館資料")
+        self.logger.debug(f"收到的fuzzy_search_results: {len(fuzzy_search_results)}間 旅館資料")
+        self.logger.debug(f"收到的plan_search_results: {len(plan_search_results)}間 旅館資料")
 
         # 合併所有搜索結果
         all_hotels = hotel_search_results + fuzzy_search_results
@@ -55,320 +47,908 @@ class ResponseGeneratorAgent(BaseAgent):
         if not all_hotels and not plan_search_results:
             self.logger.warning("沒有找到符合條件的旅館")
             response = {"status": "no_results", "message": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件。"}
+
+            # 發送無結果的消息給前端
+            if conversation_id:
+                await ws_manager.broadcast_chat_message(
+                    conversation_id,
+                    {
+                        "role": "assistant",
+                        "content": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件，或提供更多細節，如位置、日期和預算。",
+                        "timestamp": "",
+                    },
+                )
+
             return {
                 **state,
                 "response": response,
                 "text_response": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件，或提供更多細節，如位置、日期和預算。",
+                "clean_hotels": [],
+                "clean_plans": [],
+                "hotel_details": [],
+                "plan_details": [],
             }
 
-        # 根據搜索結果生成回應
+        # 根據搜索結果準備回應
         query = state.get("query", "")
-        self.logger.info(f"為查詢 '{query}' 生成回應，找到 {len(all_hotels)} 個旅館")
+        self.logger.info(f"為查詢 '{query}' 整理數據，找到 {len(all_hotels)} 個旅館")
 
-        # 生成簡短回應
-        response_text = f"我找到了 {len(all_hotels)} 個符合您要求的旅館。"
-        if plan_search_results:
-            response_text += f" 其中 {len(plan_search_results)} 個有特別方案。"
+        # 清洗和整理旅館資料
+        hotel_details = "".join(
+            (self._format_hotels_for_llm(all_hotels), self._format_plans_for_llm(plan_search_results))
+        )
 
-        # 將最多3個旅館資訊添加到回應
-        if all_hotels:
-            response_text += "\n\n推薦旅館：\n"
-            for i, hotel in enumerate(all_hotels[:3], 1):
-                name = hotel.get("name", "未知旅館")
-                address = hotel.get("address", "地址未提供")
-                price = hotel.get("price", "價格未提供")
-                response_text += f"{i}. {name} - {address}, 價格約 NT${price}\n"
+        # 為前端準備旅館和方案資料
+        clean_hotels = await self._prepare_frontend_hotels(all_hotels)
+        clean_plans = await self._prepare_frontend_plans(plan_search_results)
 
-        # 返回回應
+        # 準備簡短回應
+        response_text = f"我找到了 {len(clean_hotels)} 個符合您要求的旅館。"
+        if clean_plans:
+            response_text += f" 其中 {len(clean_plans)} 個有特別方案。"
+
+        # 通過WebSocket發送清洗後的旅館資料
+        if conversation_id:
+            await self._send_hotels_to_frontend(conversation_id, clean_hotels, clean_plans)
+
+        # 返回清洗後的資料
         return {
+            **state,
             "response": {
                 "status": "success",
-                "hotels": all_hotels[:5],  # 限制回傳數量
-                "plans": plan_search_results[:3],  # 限制回傳數量
+                "hotels": hotel_details,
                 "message": response_text,
             },
             "text_response": response_text,
+            "clean_hotels": clean_hotels,
+            "clean_plans": clean_plans,
+            "hotel_details": hotel_details,
         }
 
-    async def _enhance_geo_information(self, hotels: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """使用 FAISS 向量資料庫增強旅館的地理位置資訊"""
-        enhanced_hotels = []
+    async def _clean_hotel_data(self, hotels: list[dict[str, Any]]) -> list[str]:
+        """清洗和整理旅館資料，返回適合LLM評估的字串列表"""
+        self.logger.info(f"開始清洗 {len(hotels)} 間旅館資料")
+        clean_hotels_data = []
+        hotel_details_list = []
 
         # 確保地理資料快取已初始化
         if not geo_cache._initialized:
             await geo_cache.initialize()
 
-        for hotel in hotels:
-            enhanced_hotel = hotel.copy()
+        # 處理每個旅館
+        for i, hotel in enumerate(hotels[:10]):  # 限制處理數量
+            # 創建詳細的基本資料
+            clean_hotel = {
+                "id": hotel.get("id", ""),
+                "name": hotel.get("name", "未知"),
+                "address": hotel.get("address", "未知"),
+                "price": self._format_price(hotel.get("price")),
+                "rating": hotel.get("rating", 0),
+                "rating_text": self._convert_rating_to_text(hotel.get("rating", 0)),
+                "intro": hotel.get("intro", ""),
+                "intro_summary": self._summarize_text(hotel.get("intro", ""), 150),
+                "check_in": self._format_time(hotel.get("check_in", "")),
+                "check_out": self._format_time(hotel.get("check_out", "")),
+                "last_check_in": self._format_time(hotel.get("last_check_in", "")),
+                "phone": self._format_phone(hotel.get("phone", "")),
+                "image_url": hotel.get("image_url", ""),
+                "url": hotel.get("url", ""),
+                "location": {
+                    "latitude": hotel.get("latitude", 0),
+                    "longitude": hotel.get("longitude", 0),
+                },
+                "meals": self._format_meals(hotel.get("meals")),
+                "booking_notice": self._format_booking_notice(hotel.get("booking_notice", "")),
+            }
 
-            # 提取地址中的縣市和鄉鎮區資訊
-            address = hotel.get("address", "")
+            # 處理地理位置資訊
+            clean_hotel["location_info"] = self._extract_location_info(hotel)
 
-            # 嘗試從地址中識別縣市
-            county_info = None
-            for county in await geo_cache.get_counties():
-                county_name = county.get("name", "")
-                if county_name and county_name in address:
-                    county_info = county
-                    break
+            # 處理設施資訊
+            facilities = hotel.get("facilities", [])
+            if facilities:
+                popular_facilities = [f.get("name", "") for f in facilities if f.get("is_popular", True)]
+                other_facilities = [f.get("name", "") for f in facilities if not f.get("is_popular", False)]
 
-            # 如果沒有直接找到，使用向量搜索
-            if not county_info and address:
-                # 嘗試使用地址的前幾個字符作為搜索依據
-                address_prefix = address[:5]  # 取前5個字符，通常包含縣市名
-                county_info = geo_cache.get_county_by_name(address_prefix)
-
-            # 嘗試從地址中識別鄉鎮區
-            district_info = None
-            for district in await geo_cache.get_districts():
-                district_name = district.get("name", "")
-                if district_name and district_name in address:
-                    district_info = district
-                    break
-
-            # 如果沒有直接找到，使用向量搜索
-            if not district_info and address:
-                # 嘗試使用地址的中間部分作為搜索依據
-                if len(address) > 5:
-                    address_middle = address[3:8]  # 取中間部分，可能包含鄉鎮區名
-                    district_info = geo_cache.get_district_by_name(address_middle)
-
-            # 添加增強的地理資訊
-            if county_info:
-                enhanced_hotel["county_info"] = {
-                    "id": county_info.get("id"),
-                    "name": county_info.get("name"),
-                    "region": county_info.get("region", ""),
+                clean_hotel["facilities"] = {
+                    "popular": popular_facilities,
+                    "all": [f.get("name", "") for f in facilities],
+                    "others": other_facilities,
                 }
 
-            if district_info:
-                enhanced_hotel["district_info"] = {
-                    "id": district_info.get("id"),
-                    "name": district_info.get("name"),
-                    "county_id": district_info.get("county_id", ""),
-                }
+                # 將設施分類
+                facility_categories = self._categorize_facilities(facilities)
+                clean_hotel["facility_categories"] = facility_categories
 
-            enhanced_hotels.append(enhanced_hotel)
+            # 處理房型資訊
+            room_types = hotel.get("suitable_room_types", [])
+            if room_types:
+                clean_hotel["room_types"] = self._extract_room_types(room_types)
 
-        return enhanced_hotels
+            # 處理取消政策
+            cancel_policies = hotel.get("cancel_policies", [])
+            if cancel_policies:
+                clean_hotel["cancel_policies"] = self._format_cancel_policies(cancel_policies)
 
-    async def _enhance_geo_information_for_pois(self, poi_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """使用 FAISS 向量資料庫增強周邊地標的地理位置資訊"""
-        enhanced_poi_results = []
+            clean_hotels_data.append(clean_hotel)
 
-        for poi_result in poi_results:
-            enhanced_poi = poi_result.copy()
+            # 為LLM創建文本格式的旅館詳情
+            hotel_detail = self._format_hotel_for_llm(i + 1, clean_hotel)
+            hotel_details_list.append(hotel_detail)
 
-            # 增強景點資訊
-            if "attractions" in poi_result and "places" in poi_result["attractions"]:
-                enhanced_places = []
-                for place in poi_result["attractions"]["places"]:
-                    enhanced_place = place.copy()
-                    address = place.get("formattedAddress", "")
+        self.logger.info(f"完成清洗 {len(clean_hotels_data)} 間旅館資料")
+        return hotel_details_list  # 返回文本格式的旅館詳情列表
 
-                    # 使用向量搜索找到相關的縣市和鄉鎮區
-                    if address:
-                        county_info = geo_cache.get_county_by_name(address[:5])
-                        if county_info:
-                            enhanced_place["county_info"] = {
-                                "name": county_info.get("name"),
-                                "id": county_info.get("id"),
-                            }
+    def _format_hotel_for_llm(self, index: int, hotel: dict[str, Any]) -> str:
+        """將旅館資料格式化為LLM易於理解的文本"""
+        name = hotel.get("name", "未知")
+        address = hotel.get("address", "未知")
 
-                        district_info = geo_cache.get_district_by_name(address[3:8] if len(address) > 8 else address)
-                        if district_info:
-                            enhanced_place["district_info"] = {
-                                "name": district_info.get("name"),
-                                "id": district_info.get("id"),
-                            }
+        # 獲取縣市區域資訊
+        location_info = hotel.get("location_info", {})
+        county = location_info.get("county", {})
+        county_name = county.get("name", "") if isinstance(county, dict) else county
 
-                    enhanced_places.append(enhanced_place)
+        district = location_info.get("district", {})
+        district_name = district.get("name", "") if isinstance(district, dict) else district
 
-                enhanced_poi["attractions"]["places"] = enhanced_places
+        location_text = (
+            f"{county_name}{district_name}" if county_name and district_name else (county_name or district_name or "")
+        )
 
-            enhanced_poi_results.append(enhanced_poi)
+        # 旅館基本資訊
+        result_lines = []
+        result_lines.append(f"【旅館{index}】{name}\n")
+        result_lines.append(f"地址: {address}\n")
+        if location_text:
+            result_lines.append(f"位置: {location_text}\n")
 
-        return enhanced_poi_results
+        result_lines.append(f"價格: {hotel.get('price', '未提供')}\n")
 
-    async def _get_region_features(self, hotels: list[dict[str, Any]]) -> str:
-        """獲取旅館所在地區的特色資訊"""
-        if not hotels:
-            return "無地區特色資訊"
+        if hotel.get("rating_text"):
+            result_lines.append(f"評價: {hotel.get('rating_text', '')}\n")
 
-        # 從第一個旅館獲取地址
-        address = hotels[0].get("address", "")
-        if not address:
-            return "無法獲取地區資訊"
+        # 入住退房資訊
+        check_in = hotel.get("check_in", "")
+        check_out = hotel.get("check_out", "")
+        if check_in and check_out:
+            result_lines.append(f"入住: {check_in}, 退房: {check_out}\n")
 
-        # 使用向量搜索找到相關的縣市
-        county_info = None
-        for county in await geo_cache.get_counties():
-            county_name = county.get("name", "")
-            if county_name and county_name in address:
-                county_info = county
-                break
+        # 設施資訊
+        if "facilities" in hotel and "popular" in hotel["facilities"] and hotel["facilities"]["popular"]:
+            popular = hotel["facilities"]["popular"][:5]  # 限制數量
+            result_lines.append(f"主要設施: {', '.join(popular)}\n")
 
-        if not county_info:
-            county_info = geo_cache.get_county_by_name(address[:5])
+        # 房型資訊
+        if hotel.get("room_types"):
+            result_lines.append("客房類型:\n")
+            for j, room in enumerate(hotel["room_types"][:2]):  # 限制顯示的房型數量
+                result_lines.append(
+                    f"  - {room.get('name', '')}: {room.get('price', '')}, 可住{room.get('capacity', {}).get('total', 0)}人\n"
+                )
 
-        if not county_info:
-            return "無法識別旅館所在縣市"
+        # 旅館簡介
+        if hotel.get("intro_summary"):
+            result_lines.append(f"簡介: {hotel.get('intro_summary', '')}\n")
 
-        county_name = county_info.get("name", "")
+        # 取消政策
+        if hotel.get("cancel_policies"):
+            for policy in hotel["cancel_policies"][:1]:  # 只顯示最重要的取消政策
+                result_lines.append(f"取消政策: {policy.get('period', '')}{policy.get('description', '')}\n")
 
-        # 根據縣市提供特色資訊
-        region_features = f"【{county_name}地區特色】\n"
+        return "".join(result_lines)
 
-        # 這裡可以根據不同縣市提供不同的特色資訊
-        # 以下是一些示例資訊，實際應用中可以從資料庫或API獲取
-        region_info = {
-            "台北市": "台北市是台灣的首都，擁有豐富的美食、購物和文化景點。著名景點包括台北101、故宮博物院和饒河夜市。台北捷運系統發達，交通便利。",
-            "新北市": "新北市環繞台北市，擁有豐富的自然景觀和溫泉資源。九份老街、平溪天燈和淡水漁人碼頭是熱門景點。",
-            "台中市": "台中市氣候宜人，有「文化城」之稱。台中歌劇院、彩虹眷村和逢甲夜市是必訪景點。台中市以精緻咖啡廳和創意文化園區聞名。",
-            "台南市": "台南市是台灣最古老的城市，擁有豐富的歷史文化遺產。赤崁樓、安平古堡和各式廟宇展現了台南的歷史風貌。台南小吃聞名全台。",
-            "高雄市": "高雄是台灣南部最大城市，擁有美麗的港口和海灘。駁二藝術特區、西子灣和六合夜市是熱門景點。高雄捷運便利，適合城市觀光。",
-            "基隆市": "基隆是重要的港口城市，以雨都聞名。廟口夜市提供豐富海鮮，和平島公園則展現獨特地質景觀。",
-            "新竹市": "新竹市以科技產業聞名，有「風城」之稱。城隍廟夜市、新竹公園和玻璃工藝博物館是熱門景點。新竹米粉和貢丸是著名特產。",
-            "嘉義市": "嘉義市是通往阿里山的門戶，文化底蘊深厚。文化路夜市、嘉義公園和森林鐵路是值得一遊的景點。",
-            "宜蘭縣": "宜蘭以綠色田野和溫泉聞名，是親子旅遊的理想地點。蘭陽博物館、傳統藝術中心和礁溪溫泉是熱門景點。",
-            "花蓮縣": "花蓮擁有壯麗的自然景觀，包括太魯閣國家公園和七星潭。花蓮是體驗原住民文化和戶外活動的理想地點。",
-            "台東縣": "台東有美麗的海岸線和山脈，是放鬆身心的好地方。鹿野高台、池上稻田和綠島是熱門景點。",
-            "澎湖縣": "澎湖是由90多個島嶼組成的群島，擁有美麗的海灘和豐富的海洋資源。澎湖是水上活動和觀光的理想地點。",
+    def _extract_location_info(self, hotel: dict[str, Any]) -> dict[str, Any]:
+        """從旅館資料中提取地理位置信息"""
+        location_info = {}
+
+        # 縣市資訊
+        if hotel.get("county"):
+            location_info["county"] = hotel["county"]
+        elif hotel.get("county_info"):
+            location_info["county"] = hotel["county_info"]
+
+        # 區域資訊
+        if hotel.get("district"):
+            location_info["district"] = hotel["district"]
+        elif hotel.get("district_info"):
+            location_info["district"] = hotel["district_info"]
+
+        # 國家、省份資訊
+        if hotel.get("country"):
+            location_info["country"] = hotel["country"]
+        if hotel.get("province"):
+            location_info["province"] = hotel["province"]
+
+        # 提取地址中的郵遞區號和詳細地址
+        address = hotel.get("address", "")
+        if address:
+            postal_code = self._extract_postal_code(address)
+            if postal_code:
+                location_info["postal_code"] = postal_code
+
+            # 提取英文地址和中文地址
+            address_parts = address.split(" ", 1)
+            if len(address_parts) > 1 and any(c.isascii() for c in address_parts[1]):
+                location_info["zh_address"] = address_parts[0]
+                location_info["en_address"] = address_parts[1]
+            else:
+                location_info["full_address"] = address
+
+        return location_info
+
+    def _extract_postal_code(self, address: str) -> str:
+        """從地址中提取郵遞區號"""
+        # 台灣郵遞區號通常為3-5位數字
+        import re
+
+        match = re.match(r"^\d{3,5}", address)
+        return match.group(0) if match else ""
+
+    def _extract_room_types(self, room_types: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """提取並格式化房型資訊"""
+        formatted_room_types = []
+
+        for room in room_types:
+            formatted_room = {
+                "id": room.get("id", ""),
+                "name": room.get("name", "未知房型"),
+                "price": self._format_price(room.get("price")),
+                "area": f"{room.get('avg_square_feet', 0)}坪" if room.get("avg_square_feet") else "未提供",
+                "bed_type": room.get("bed_type", "未提供"),
+                "capacity": {
+                    "adults": room.get("adults", 0),
+                    "children": room.get("children", 0),
+                    "total": room.get("adults", 0) + room.get("children", 0),
+                },
+                "intro": room.get("intro", ""),
+                "intro_summary": self._summarize_text(room.get("intro", ""), 100),
+            }
+
+            # 處理房型設施
+            if room.get("facilities"):
+                formatted_room["facilities"] = [f.get("name", "") for f in room["facilities"]]
+
+            # 處理價格方案
+            if room.get("prices"):
+                price_plans = []
+                for price_data in room["prices"]:
+                    plan = {
+                        "date": price_data.get("date", ""),
+                        "price": self._format_price(price_data.get("price")),
+                        "availability": price_data.get("rooms", 0),
+                    }
+                    if price_data.get("plan"):
+                        plan["plan_name"] = price_data["plan"].get("name", "基本方案")
+                        if "keywords" in price_data["plan"] and price_data["plan"]["keywords"]:
+                            plan["keywords"] = price_data["plan"]["keywords"]
+                    price_plans.append(plan)
+                formatted_room["price_plans"] = price_plans
+
+            formatted_room_types.append(formatted_room)
+
+        return formatted_room_types
+
+    def _format_cancel_policies(self, policies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """格式化取消政策為更易讀的格式"""
+        formatted_policies = []
+
+        for policy in policies:
+            formatted_policy = {
+                "description": policy.get("description", ""),
+                "refund_percent": 100 - policy.get("percent", 0),
+            }
+
+            # 格式化時間段
+            start_days = policy.get("start_days")
+            end_days = policy.get("end_days")
+
+            if start_days is None and end_days is not None:
+                formatted_policy["period"] = f"入住前{end_days}天及更早"
+            elif start_days is not None and end_days is not None:
+                if start_days == end_days:
+                    formatted_policy["period"] = f"入住前{start_days}天"
+                else:
+                    formatted_policy["period"] = f"入住前{start_days}-{end_days}天"
+            elif start_days == 0 and end_days == 0:
+                formatted_policy["period"] = "入住當天或入住後"
+
+            formatted_policies.append(formatted_policy)
+
+        return formatted_policies
+
+    def _categorize_facilities(self, facilities: list[dict[str, Any]]) -> dict[str, list[str]]:
+        """將設施分類為不同類別"""
+        categories = {
+            "安全設施": [],
+            "服務設施": [],
+            "客房設施": [],
+            "交通設施": [],
+            "餐飲設施": [],
+            "清潔與健康": [],
+            "語言服務": [],
+            "支付選項": [],
+            "其他設施": [],
         }
 
-        if county_name in region_info:
-            region_features += region_info[county_name]
-        else:
-            region_features += f"{county_name}是台灣的美麗地區，擁有獨特的地方特色和風景。"
+        for facility in facilities:
+            name = facility.get("name", "")
+            if not name:
+                continue
 
-        return region_features
+            if any(keyword in name for keyword in ["消毒", "清潔", "體溫", "口罩", "衛生"]):
+                categories["清潔與健康"].append(name)
+            elif any(keyword in name for keyword in ["急救", "滅火", "監視", "AED", "煙霧"]):
+                categories["安全設施"].append(name)
+            elif any(keyword in name for keyword in ["櫃檯", "接待", "入住", "行李", "退房", "收取包裹", "外送"]):
+                categories["服務設施"].append(name)
+            elif any(keyword in name for keyword in ["停車", "接送", "交通"]):
+                categories["交通設施"].append(name)
+            elif any(keyword in name for keyword in ["中文", "英文", "日文", "韓文"]):
+                categories["語言服務"].append(name)
+            elif any(keyword in name for keyword in ["刷卡", "支付", "電子支付"]):
+                categories["支付選項"].append(name)
+            elif any(keyword in name for keyword in ["早餐", "餐廳", "咖啡", "茶"]):
+                categories["餐飲設施"].append(name)
+            else:
+                categories["其他設施"].append(name)
 
-    def _format_hotels(self, hotels: list[dict[str, Any]], hotel_details: list[dict[str, Any]]) -> str:
-        """格式化旅館信息"""
-        # TODO: 實現格式化旅館信息的邏輯
+        # 刪除空類別
+        return {k: v for k, v in categories.items() if v}
+
+    def _format_meals(self, meals) -> str:
+        """格式化餐食資訊"""
+        if not meals:
+            return "不提供餐食"
+
+        if isinstance(meals, list):
+            try:
+                meal_mapping = {1: "早餐", 2: "中餐", 3: "晚餐"}
+                formatted_meals = []
+                for meal in meals:
+                    if isinstance(meal, int) and meal in meal_mapping:
+                        formatted_meals.append(meal_mapping[meal])
+                    else:
+                        # 確保所有非整數型別的餐食都轉為字串
+                        formatted_meals.append(str(meal))
+
+                # 確保所有列表項都是字串，再進行join操作
+                return ", ".join(formatted_meals)
+            except Exception as e:
+                self.logger.error(f"餐食資訊格式化錯誤: {e}, 原始資料: {meals}")
+                return "有提供餐食，但需要洽詢"
+
+        # 非列表類型，直接轉為字串
+        return str(meals)
+
+    def _format_booking_notice(self, notice: str) -> list[str]:
+        """將預訂須知分拆為條文列表"""
+        if not notice:
+            return []
+
+        # 根據段落或數字標記分拆
+        import re
+
+        # 先按行分拆
+        lines = notice.split("\n")
+
+        # 整理成條文，合併不是以數字或特殊符號開頭的行
+        formatted_lines = []
+        current_line = ""
+
+        for line in lines:
+            clean_line = line.strip()
+            if not clean_line:
+                continue
+
+            # 檢查是否是新條目開始
+            if re.match(r"^[0-9\.\-►•]+", clean_line) or "【" in clean_line[:3]:
+                if current_line:
+                    formatted_lines.append(current_line)
+                current_line = clean_line
+            else:
+                current_line += " " + clean_line
+
+        # 添加最後一行
+        if current_line:
+            formatted_lines.append(current_line)
+
+        return formatted_lines
+
+    def _format_time(self, time_str: str) -> str:
+        """格式化時間"""
+        if not time_str:
+            return ""
+
+        # 處理24小時制時間
+        if ":" in time_str:
+            try:
+                parts = time_str.split(":")
+                hour = int(parts[0])
+                minute = parts[1][:2]
+
+                # 轉為易讀格式
+                if hour < 12:
+                    return f"上午{hour}:{minute}"
+                if hour == 12:
+                    return f"中午{hour}:{minute}"
+                return f"下午{hour - 12}:{minute}"
+            except (ValueError, IndexError):
+                return time_str
+
+        return time_str
+
+    def _format_phone(self, phone: str) -> str:
+        """格式化電話號碼"""
+        if not phone:
+            return ""
+
+        # 統一格式，去除空格
+        phone = phone.replace(" ", "")
+
+        # 格式化台灣電話號碼
+        if phone.startswith("0"):
+            if len(phone) == 10:  # 行動電話
+                return f"{phone[:4]}-{phone[4:7]}-{phone[7:]}"
+            if len(phone) == 9:  # 市話
+                return f"{phone[:2]}-{phone[2:5]}-{phone[5:]}"
+
+        return phone
+
+    def _format_price(self, price) -> str:
+        """格式化價格"""
+        if not price:
+            return "未提供"
+
+        try:
+            price_int = int(float(price))
+            return f"NT$ {price_int:,}"
+        except (ValueError, TypeError):
+            return str(price)
+
+    def _convert_rating_to_text(self, rating: float) -> str:
+        """將數字評分轉換為文字描述"""
+        if not rating:
+            return "尚無評價"
+
+        rating = float(rating)
+        if rating >= 4.5:
+            return "極佳"
+        if rating >= 4.0:
+            return "非常好"
+        if rating >= 3.5:
+            return "好"
+        if rating >= 3.0:
+            return "滿意"
+        return "普通"
+
+    def _summarize_text(self, text: str, max_length: int = 100) -> str:
+        """簡化長文本"""
+        if not text:
+            return ""
+
+        if len(text) <= max_length:
+            return text
+
+        # 嘗試在句號、問號或感嘆號處截斷
+        for i in range(max_length, max(max_length - 30, 0), -1):
+            if i < len(text) and text[i] in ["。", "!", "?", "！", "？", "."]:
+                return text[: i + 1]
+
+        # 如果找不到合適的截斷點，直接截斷並加上省略號
+        return text[:max_length] + "..."
+
+    async def _clean_plan_data(self, plans: list[dict[str, Any]]) -> list[str]:
+        """清洗和整理方案資料，返回適合LLM評估的字串列表"""
+        if not plans:
+            return []
+
+        self.logger.info(f"開始清洗 {len(plans)} 個方案資料")
+        clean_plans_data = []
+        plan_details_list = []
+
+        for i, plan in enumerate(plans[:5]):  # 限制回傳數量
+            clean_plan = {
+                "id": plan.get("plan_id", ""),
+                "name": plan.get("plan_name", "未知方案"),
+                "hotel_id": plan.get("hotel_id", ""),
+                "hotel_name": plan.get("hotel_name", "未知旅館"),
+                "price": self._format_price(plan.get("price", 0)),
+                "original_price": self._format_price(plan.get("original_price"))
+                if plan.get("original_price")
+                else None,
+                "discount_percent": self._calculate_discount(plan.get("price", 0), plan.get("original_price"))
+                if plan.get("original_price")
+                else None,
+                "description": plan.get("description", ""),
+                "description_summary": self._summarize_text(plan.get("description", ""), 120),
+                "image_url": plan.get("image_url", ""),
+                "url": plan.get("url", ""),
+                "date_range": self._format_date_range(plan.get("start_date"), plan.get("end_date")),
+                "valid_days": self._count_valid_days(plan.get("start_date"), plan.get("end_date")),
+            }
+
+            # 整理方案條款
+            if plan.get("terms"):
+                clean_plan["terms"] = self._format_plan_terms(plan["terms"])
+
+            # 整理適用房型
+            if plan.get("room_types"):
+                clean_plan["room_types"] = [
+                    {"name": room.get("name", "未知房型"), "id": room.get("id")} for room in plan["room_types"]
+                ]
+
+            clean_plans_data.append(clean_plan)
+
+            # 為LLM創建文本格式的方案詳情
+            plan_detail = self._format_plan_for_llm(i + 1, clean_plan)
+            plan_details_list.append(plan_detail)
+
+        self.logger.info(f"完成清洗 {len(clean_plans_data)} 個方案資料")
+        return plan_details_list  # 返回文本格式的方案詳情列表
+
+    def _calculate_discount(self, current: float, original: float) -> str:
+        """計算折扣百分比"""
+        try:
+            current = float(current)
+            original = float(original)
+            if original > 0:
+                discount = (original - current) / original * 100
+                return f"{discount:.0f}%"
+        except (ValueError, TypeError):
+            pass
+        return None
+
+    def _format_date_range(self, start_date: str, end_date: str) -> str:
+        """格式化日期範圍"""
+        if not start_date and not end_date:
+            return "不限日期"
+        if start_date and not end_date:
+            return f"{start_date} 起"
+        if not start_date and end_date:
+            return f"至 {end_date}"
+        return f"{start_date} ~ {end_date}"
+
+    def _count_valid_days(self, start_date: str, end_date: str) -> int:
+        """計算有效天數"""
+        if not start_date or not end_date:
+            return 0
+
+        try:
+            from datetime import datetime
+
+            start = datetime.strptime(start_date, "%Y-%m-%d")
+            end = datetime.strptime(end_date, "%Y-%m-%d")
+            return (end - start).days + 1
+        except (ValueError, TypeError):
+            return 0
+
+    def _format_plan_terms(self, terms: list[str] or str) -> list[str]:
+        """格式化方案條款"""
+        if not terms:
+            return []
+
+        if isinstance(terms, str):
+            # 按行分拆
+            return [line.strip() for line in terms.split("\n") if line.strip()]
+
+        if isinstance(terms, list):
+            return terms
+
+        return []
+
+    def _format_plan_for_llm(self, index: int, plan: dict[str, Any]) -> str:
+        """將方案資料格式化為LLM易於理解的文本"""
+        name = plan.get("name", "未知方案")
+        hotel_name = plan.get("hotel_name", "")
+
+        result_lines = []
+        result_lines.append(f"【方案{index}】{name} ({hotel_name})\n")
+        result_lines.append(f"價格: {plan.get('price', '')}")
+
+        if plan.get("discount_percent"):
+            result_lines.append(f" (折扣: {plan.get('discount_percent', '')})")
+
+        result_lines.append("\n")
+
+        if plan.get("date_range"):
+            result_lines.append(f"有效期間: {plan.get('date_range', '')}\n")
+
+        if plan.get("description_summary"):
+            result_lines.append(f"內容: {plan.get('description_summary', '')}\n")
+
+        # 添加方案條款
+        if plan.get("terms") and isinstance(plan["terms"], list) and plan["terms"]:
+            result_lines.append("條款:\n")
+            for term in plan["terms"][:3]:  # 限制顯示的條款數量
+                result_lines.append(f"  - {term}\n")
+
+        # 添加適用房型
+        if plan.get("room_types") and isinstance(plan["room_types"], list) and plan["room_types"]:
+            result_lines.append("適用房型:\n")
+            for room in plan["room_types"][:2]:  # 限制顯示的房型數量
+                result_lines.append(f"  - {room.get('name', '')}\n")
+
+        return "".join(result_lines)
+
+    async def _send_hotels_to_frontend(
+        self, conversation_id: str, hotels: list[dict[str, Any]], plans: list[dict[str, Any]]
+    ) -> None:
+        """將旅館和方案資料通過WebSocket發送給前端"""
+        try:
+            # 準備旅館資料
+            frontend_hotels = []
+            if hotels:
+                # 簡化給前端的資料，避免過大
+                for hotel in hotels:
+                    frontend_hotel = {
+                        "id": hotel.get("id", ""),
+                        "name": hotel.get("name", ""),
+                        "address": hotel.get("address", ""),
+                        "price": hotel.get("price", ""),
+                        "rating_text": hotel.get("rating_text", ""),
+                        "intro_summary": hotel.get("intro_summary", ""),
+                        "check_in": hotel.get("check_in", ""),
+                        "check_out": hotel.get("check_out", ""),
+                        "image_url": hotel.get("image_url", ""),
+                        "phone": hotel.get("phone", ""),
+                        "url": hotel.get("url", ""),
+                    }
+
+                    # 添加主要設施
+                    if "facilities" in hotel and "popular" in hotel["facilities"]:
+                        try:
+                            # 確保設施是字串列表
+                            frontend_hotel["facilities"] = [str(f) for f in hotel["facilities"]["popular"][:5]]
+                        except Exception as e:
+                            self.logger.error(f"處理設施時發生錯誤: {e}")
+                            frontend_hotel["facilities"] = []
+
+                    # 添加地理位置
+                    if "location_info" in hotel:
+                        try:
+                            location = hotel["location_info"]
+                            county = location.get("county", "")
+                            district = location.get("district", "")
+
+                            # 處理不同數據結構
+                            county_name = county.get("name", "") if isinstance(county, dict) else str(county)
+                            district_name = district.get("name", "") if isinstance(district, dict) else str(district)
+
+                            frontend_hotel["location"] = {"county": county_name, "district": district_name}
+                        except Exception as e:
+                            self.logger.error(f"處理地理位置時發生錯誤: {e}")
+                            frontend_hotel["location"] = {"county": "", "district": ""}
+
+                    frontend_hotels.append(frontend_hotel)
+
+            # 準備方案資料
+            frontend_plans = []
+            if plans:
+                # 簡化給前端的資料
+                for plan in plans:
+                    try:
+                        frontend_plan = {
+                            "id": plan.get("id", ""),
+                            "name": str(plan.get("name", "")),
+                            "hotel_name": str(plan.get("hotel_name", "")),
+                            "price": str(plan.get("price", "")),
+                            "discount_percent": str(plan.get("discount_percent", "")),
+                            "description_summary": str(plan.get("description_summary", "")),
+                            "image_url": plan.get("image_url", ""),
+                            "url": plan.get("url", ""),
+                            "date_range": str(plan.get("date_range", "")),
+                        }
+                        frontend_plans.append(frontend_plan)
+                    except Exception as e:
+                        self.logger.error(f"處理方案資料時發生錯誤: {e}")
+
+            # 準備綜合回應訊息
+            response_text = f"我找到了 {len(hotels)} 個符合您要求的旅館"
+            if plans:
+                response_text += f"，其中 {len(plans)} 個有特別方案"
+            response_text += "。"
+
+            # 發送綜合訊息
+            combined_message = {
+                "role": "assistant",
+                "content": response_text,
+                "hotels": frontend_hotels,
+                "plans": frontend_plans,
+                "timestamp": "",
+            }
+
+            self.logger.debug(f"正在發送綜合資料到前端: {len(frontend_hotels)} 間旅館和 {len(frontend_plans)} 個方案")
+            await ws_manager.broadcast_chat_message(conversation_id, combined_message)
+            self.logger.info(f"已發送綜合資料到前端: {len(frontend_hotels)} 間旅館和 {len(frontend_plans)} 個方案")
+
+        except Exception as e:
+            self.logger.error(f"發送資料到前端失敗: {e}")
+            # 嘗試發送簡單文本消息通知用戶
+            try:
+                await ws_manager.broadcast_chat_message(
+                    conversation_id,
+                    {
+                        "role": "system",
+                        "content": f"找到 {len(hotels)} 間旅館和 {len(plans)} 個方案，但無法完整顯示資料。請重試或聯絡客服。",
+                        "timestamp": "",
+                    },
+                )
+            except Exception as e2:
+                self.logger.error(f"發送錯誤通知也失敗: {e2}")
+
+    async def _prepare_frontend_hotels(self, hotels: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """準備前端顯示用的旅館資料"""
+        self.logger.info(f"開始準備前端顯示用的旅館資料，共 {len(hotels)} 間")
+        clean_hotels = []
+
+        # 確保地理資料快取已初始化
+        if not geo_cache._initialized:
+            await geo_cache.initialize()
+
+        # 處理每個旅館
+        for hotel in hotels[:10]:  # 限制處理數量
+            # 創建詳細的基本資料
+            clean_hotel = {
+                "id": hotel.get("id", ""),
+                "name": hotel.get("name", "未知"),
+                "address": hotel.get("address", "未知"),
+                "price": self._format_price(hotel.get("price")),
+                "rating": hotel.get("rating", 0),
+                "rating_text": self._convert_rating_to_text(hotel.get("rating", 0)),
+                "intro_summary": self._summarize_text(hotel.get("intro", ""), 150),
+                "check_in": self._format_time(hotel.get("check_in", "")),
+                "check_out": self._format_time(hotel.get("check_out", "")),
+                "phone": self._format_phone(hotel.get("phone", "")),
+                "image_url": hotel.get("image_url", ""),
+                "url": hotel.get("url", ""),
+            }
+
+            # 處理地理位置資訊
+            location_info = self._extract_location_info(hotel)
+            county = location_info.get("county", "")
+            district = location_info.get("district", "")
+
+            # 處理不同數據結構
+            county_name = county.get("name", "") if isinstance(county, dict) else str(county)
+            district_name = district.get("name", "") if isinstance(district, dict) else str(district)
+
+            clean_hotel["location"] = {"county": county_name, "district": district_name}
+
+            # 處理設施資訊
+            facilities = hotel.get("facilities", [])
+            if facilities:
+                popular_facilities = [f.get("name", "") for f in facilities if f.get("is_popular", True)]
+                clean_hotel["facilities"] = popular_facilities[:5]  # 只取前5個主要設施
+
+            clean_hotels.append(clean_hotel)
+
+        self.logger.info(f"完成準備前端顯示用的旅館資料，共 {len(clean_hotels)} 間")
+        return clean_hotels
+
+    async def _prepare_frontend_plans(self, plans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """準備前端顯示用的方案資料"""
+        if not plans:
+            return []
+
+        self.logger.info(f"開始準備前端顯示用的方案資料，共 {len(plans)} 個")
+        clean_plans = []
+
+        for plan in plans[:5]:  # 限制回傳數量
+            clean_plan = {
+                "id": plan.get("plan_id", ""),
+                "name": plan.get("plan_name", "未知方案"),
+                "hotel_name": plan.get("hotel_name", "未知旅館"),
+                "price": self._format_price(plan.get("price", 0)),
+                "discount_percent": self._calculate_discount(plan.get("price", 0), plan.get("original_price")),
+                "description_summary": self._summarize_text(plan.get("description", ""), 120),
+                "image_url": plan.get("image_url", ""),
+                "url": plan.get("url", ""),
+                "date_range": self._format_date_range(plan.get("start_date"), plan.get("end_date")),
+            }
+
+            clean_plans.append(clean_plan)
+
+        self.logger.info(f"完成準備前端顯示用的方案資料，共 {len(clean_plans)} 個")
+        return clean_plans
+
+    def _format_hotels_for_llm(self, hotels: list[dict[str, Any]]) -> str:
+        """將旅館資料格式化為LLM易於理解的文本"""
         if not hotels:
-            return "無旅館信息"
+            return "無旅館資料"
 
-        result = ""
-        for i, hotel in enumerate(hotels[:5]):
-            hotel_name = hotel.get("name", "未知")
-            hotel_address = hotel.get("address", "未知")
-            hotel_price = hotel.get("price", "未知")
+        result_lines = []
+        for i, hotel in enumerate(hotels):  # 限制LLM處理的數量
+            name = hotel.get("name", "未知")
+            address = hotel.get("address", "未知")
 
-            result += f"{i + 1}. {hotel_name}\n"
-            result += f"   地址: {hotel_address}\n"
-            result += f"   價格: {hotel_price} 元/晚\n"
+            # 獲取縣市區域資訊
+            location_info = hotel.get("location_info", {})
+            county = location_info.get("county", {})
+            county_name = county.get("name", "") if isinstance(county, dict) else county
 
-            # 添加增強的地理位置資訊
-            if "county_info" in hotel:
-                result += f"   所在縣市: {hotel['county_info'].get('name', '')}\n"
+            district = location_info.get("district", {})
+            district_name = district.get("name", "") if isinstance(district, dict) else district
 
-            if "district_info" in hotel:
-                result += f"   所在鄉鎮區: {hotel['district_info'].get('name', '')}\n"
+            location_text = (
+                f"{county_name}{district_name}"
+                if county_name and district_name
+                else (county_name or district_name or "")
+            )
 
-            # 添加詳情信息（如果有）
-            for detail in hotel_details:
-                if detail.get("id") == hotel.get("id"):
-                    hotel_description = detail.get("description", "")
-                    if hotel_description:
-                        result += f"   描述: {hotel_description}\n"
+            # 旅館基本資訊
+            result_lines.append(f"【旅館{i + 1}】{name}\n")
+            result_lines.append(f"地址: {address}\n")
+            if location_text:
+                result_lines.append(f"位置: {location_text}\n")
 
-                    hotel_facilities = detail.get("facilities", [])
-                    if hotel_facilities:
-                        facilities_str = ", ".join([f.get("name", "") for f in hotel_facilities])
-                        result += f"   設施: {facilities_str}\n"
+            result_lines.append(f"價格: {hotel.get('price', '未提供')}\n")
 
-                    break
+            if hotel.get("rating_text"):
+                result_lines.append(f"評價: {hotel.get('rating_text', '')}\n")
+
+            # 入住退房資訊
+            check_in = hotel.get("check_in", "")
+            check_out = hotel.get("check_out", "")
+            if check_in and check_out:
+                result_lines.append(f"入住: {check_in}, 退房: {check_out}\n")
+
+            if hotel.get("intro"):
+                result_lines.append(f"簡介: {hotel.get('intro', '')}\n")
+
+            # 設施資訊
+            if hotel.get("facilities"):
+                popular = ", ".join(i["name"] for i in hotel["facilities"][:5] if i["is_popular"])  # 限制數量
+                result_lines.append(f"熱門特色: {popular}\n")
+
+            # 房型資訊
+            if hotel.get("suitable_room_types"):
+                result_lines.append("客房類型:\n")
+                for j, room in enumerate(hotel["suitable_room_types"][:2]):  # 限制顯示的房型數量
+                    result_lines.append(
+                        f"  - {room.get('name', '')}: {room.get('price', '')}, 可住{room.get('adults')}人\n"
+                    )
+
+            # 旅館簡介
+            if hotel.get("intro_summary"):
+                result_lines.append(f"簡介: {hotel.get('intro_summary', '')}\n")
+
+            # 取消政策
+            # if hotel.get("cancel_policies"):
+            #     for policy in hotel["cancel_policies"]:
+            #         result_lines.append(f"取消政策: {policy.get('period', '')}{policy.get('description', '')}\n")
+
+            result_lines.append("\n")
+
+        return "".join(result_lines)
+
+    def _format_plans_for_llm(self, plans: list[dict[str, Any]]) -> str:
+        """將方案資料格式化為LLM易於理解的文本"""
+        if not plans:
+            return ""
+
+        result = "【特價方案】\n"
+        for i, plan in enumerate(plans[:3]):  # 限制數量
+            name = plan.get("name", "未知方案")
+            hotel_name = plan.get("hotel_name", "")
+
+            result += f"{i + 1}. {name} ({hotel_name})\n"
+            result += f"   價格: {plan.get('price', '')}"
+
+            if plan.get("discount_percent"):
+                result += f" (折扣: {plan.get('discount_percent', '')})"
+
+            result += "\n"
+
+            if plan.get("date_range"):
+                result += f"   有效期間: {plan.get('date_range', '')}\n"
+
+            if plan.get("description_summary"):
+                result += f"   內容: {plan.get('description_summary', '')}\n"
 
             result += "\n"
 
         return result
-
-    def _format_poi_results(self, poi_results: list[dict[str, Any]]) -> str:
-        """格式化周邊地標信息"""
-        # TODO: 實現格式化周邊地標信息的邏輯
-        if not poi_results:
-            return "無周邊地標信息"
-
-        result = ""
-        for poi_result in poi_results:
-            hotel_name = poi_result.get("hotel_name", "未知")
-            result += f"【{hotel_name}】周邊:\n"
-
-            # 景點
-            attractions = poi_result.get("attractions", {})
-            places = attractions.get("places", [])
-            if places:
-                result += "景點:\n"
-                for i, place in enumerate(places[:3]):
-                    place_name = place.get("displayName", {}).get("text", "未知")
-                    place_address = place.get("formattedAddress", "未知")
-                    place_rating = place.get("rating", "未知")
-
-                    result += f"  {i + 1}. {place_name}\n"
-                    result += f"     地址: {place_address}\n"
-                    if place_rating != "未知":
-                        result += f"     評分: {place_rating}\n"
-
-                    # 添加增強的地理位置資訊
-                    if "county_info" in place:
-                        result += f"     所在縣市: {place['county_info'].get('name', '')}\n"
-
-                    if "district_info" in place:
-                        result += f"     所在鄉鎮區: {place['district_info'].get('name', '')}\n"
-
-            # 餐廳
-            restaurants = poi_result.get("restaurants", {})
-            places = restaurants.get("places", [])
-            if places:
-                result += "餐廳:\n"
-                for i, place in enumerate(places[:3]):
-                    place_name = place.get("displayName", {}).get("text", "未知")
-                    place_address = place.get("formattedAddress", "未知")
-                    place_rating = place.get("rating", "未知")
-
-                    result += f"  {i + 1}. {place_name}\n"
-                    result += f"     地址: {place_address}\n"
-                    if place_rating != "未知":
-                        result += f"     評分: {place_rating}\n"
-
-            # 交通
-            transport = poi_result.get("transport", {})
-            places = transport.get("places", [])
-            if places:
-                result += "交通:\n"
-                for i, place in enumerate(places[:3]):
-                    place_name = place.get("displayName", {}).get("text", "未知")
-                    place_address = place.get("formattedAddress", "未知")
-
-                    result += f"  {i + 1}. {place_name}\n"
-                    result += f"     地址: {place_address}\n"
-
-            result += "\n"
-
-        return result
-
-    def _choose_search_node(self, state: dict[str, Any]) -> str:
-        # 檢查是否已經嘗試過生成回應，避免循環
-        if state.get("tried_response_generation"):
-            logger.warning("檢測到可能的循環，強制結束工作流")
-            return "search_complete"
-
-        # 其他邏輯...
-
-        # 當沒有足夠條件時應明確標記搜索任務為完成
-        if not basic_search_ready:
-            if "search_tasks_complete" not in state:
-                state["search_tasks_complete"] = {}
-            state["search_tasks_complete"]["hotel_search"] = True
-
-    def _search_complete_check(self, state: dict[str, Any]) -> dict[str, Any]:
-        logger.info("所有搜索任務已完成，準備生成回應")
-
-        # 添加已嘗試生成回應的標記
-        state["tried_response_generation"] = True
-
-        return state
 
 
 # 創建回應生成Agent實例

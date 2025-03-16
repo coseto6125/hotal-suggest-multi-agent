@@ -171,3 +171,7 @@ class StreamChatResponse(BaseModel):
     stage: str | None = Field(None, description="處理階段，如'parse_query', 'geo_parse', 'search_hotels'等")
     geo_data: dict | None = Field(None, description="地理位置數據")
     error: str | None = Field(None, description="錯誤信息")
+    is_collapsible: bool | None = Field(None, description="是否可摺疊")
+
+    class Config:
+        extra = "allow"  # 允許額外的屬性

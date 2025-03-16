@@ -7,10 +7,10 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 
 
-class HotelTypeParserAgent(BaseSubAgent):
+class HotelTypeParserAgent(BaseAgent):
     """旅館類型解析子Agent"""
 
     def __init__(self):
@@ -42,18 +42,40 @@ class HotelTypeParserAgent(BaseSubAgent):
             pattern = "|".join(keywords)
             self.hotel_type_patterns[hotel_type] = re.compile(f"({pattern})")
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢中的旅館類型"""
-        logger.debug(f"[{self.name}] 開始解析旅館類型")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """處理旅館類型解析請求"""
+        logger.debug(f"[{self.name}] 開始處理旅館類型解析請求")
+
+        # 從輸入中提取查詢和上下文
+        query = state.get("query", "")
+        context = state.get("context", {})
+
         try:
             if not query:
-                raise ValueError("查詢內容為空")
+                # 如果沒有查詢文本，嘗試從上下文或其他字段獲取信息
+                if "hotel_type" in context:
+                    return {"hotel_type": context["hotel_type"]}
 
-            # TODO: 暫時返回查詢不到的結果
-            return {"hotel_type": "BASIC", "message": "無法從查詢中提取旅館類型，使用預設類型：BASIC"}
+                logger.warning("查詢內容為空，無法解析旅館類型")
+                return {"hotel_type": "BASIC", "message": "無法從查詢中提取旅館類型，使用預設類型：BASIC"}
+
+            # 首先嘗試使用正則表達式解析
+            hotel_type = self._extract_hotel_type_with_regex(query)
+
+            # 如果正則表達式無法解析，嘗試使用LLM
+            if not hotel_type:
+                logger.debug("正則表達式無法解析旅館類型，嘗試使用LLM")
+                hotel_type = await self._extract_hotel_type_with_llm(query)
+
+            # 如果仍然無法解析，使用預設值
+            if not hotel_type:
+                logger.info("無法從查詢中提取旅館類型，使用預設類型：BASIC")
+                return {"hotel_type": "BASIC", "message": "無法從查詢中提取旅館類型，使用預設類型：BASIC"}
+
+            return {"hotel_type": hotel_type}
 
         except Exception as e:
-            logger.debug(f"[{self.name}] 旅館類型解析失敗: {e}")
+            logger.error(f"[{self.name}] 旅館類型解析失敗: {e}")
             return {"hotel_type": "BASIC", "message": f"旅館類型解析失敗，使用預設類型：BASIC（錯誤：{e!s}）"}
 
     def _extract_hotel_type_with_regex(self, query: str) -> str:
@@ -96,7 +118,7 @@ class HotelTypeParserAgent(BaseSubAgent):
 
         # 使用共用方法提取旅館類型
         response = await self._extract_with_llm(
-            prompt=f"從以下查詢中提取旅館類型：{query}", system_prompt=system_prompt, response_format=response_format
+            prompt=f"從以下查詢中提取旅館類型：{query}", system_prompt=system_prompt
         )
 
         # 如果回應是字符串，進行處理
@@ -120,7 +142,3 @@ class HotelTypeParserAgent(BaseSubAgent):
             logger.warning(f"LLM回應格式不正確: {response}")
 
         return ""
-
-
-# 創建旅館類型解析子Agent實例
-hotel_type_parser_agent = HotelTypeParserAgent()

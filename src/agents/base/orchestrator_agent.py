@@ -54,7 +54,7 @@ class OrchestratorAgent(BaseAgent):
         # 初始化回應生成 Agent
         # self.response_generator = ResponseGeneratorAgent()
 
-    async def _process(self, state: dict[str, Any]) -> dict[str, Any]:
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
         """處理工作流程狀態"""
         try:
             # 執行解析階段
@@ -69,10 +69,10 @@ class OrchestratorAgent(BaseAgent):
             response = await self._generate_response(state)
             state["response"] = response
 
-            return state
         except Exception as e:
             logger.error(f"Orchestrator 處理失敗: {e}")
             return {"error": str(e)}
+        return state
 
     async def _run_parsing_agents(self, state: dict[str, Any]) -> dict[str, Any]:
         """執行所有解析 Agent"""
@@ -101,16 +101,16 @@ class OrchestratorAgent(BaseAgent):
                     results[name] = self._get_default_value(name)
 
             # 返回新的 parsed_data 字典，而不是修改原始狀態
-            return results
         except Exception as e:
             logger.error(f"解析階段執行失敗: {e}")
             return {}
+        return results
 
     async def _run_single_parser(self, agent: BaseAgent, user_query: str) -> dict[str, Any] | None:
         """執行單個解析 Agent"""
         try:
             # 只傳遞用戶查詢，避免狀態並發問題
-            return await agent.process_query(user_query)
+            return await agent.process(user_query)
         except Exception as e:
             logger.error(f"解析 Agent {agent.name} 執行失敗: {e}")
             return None
@@ -166,11 +166,10 @@ class OrchestratorAgent(BaseAgent):
                         results[name] = result
                 except Exception as e:
                     logger.error(f"搜索 Agent {name} 執行失敗: {e}")
-
-            return results
         except Exception as e:
             logger.error(f"搜索階段執行失敗: {e}")
             return {}
+        return results
 
     def _prepare_basic_search_params(self, parsed_data: dict[str, Any]) -> dict[str, Any]:
         """準備基本搜索參數"""

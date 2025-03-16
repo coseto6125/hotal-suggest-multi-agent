@@ -9,11 +9,11 @@ import spacy
 from loguru import logger
 from spacy.matcher import Matcher
 
-from src.agents.base.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 from src.utils.nlp_utils import get_shared_spacy_model
 
 
-class GuestParserAgent(BaseSubAgent):
+class GuestParserAgent(BaseAgent):
     """人數解析子Agent"""
 
     # 靜態共享的spaCy模型
@@ -107,7 +107,7 @@ class GuestParserAgent(BaseSubAgent):
         self.spacy_available = False
         try:
             # 嘗試獲取共享的spaCy模型
-            self.nlp = get_shared_spacy_model("zh_core_web_sm")
+            self.nlp = get_shared_spacy_model("zh_core_web_md")
             self.spacy_available = True
             logger.info("成功載入spaCy中文模型")
 
@@ -908,24 +908,40 @@ class GuestParserAgent(BaseSubAgent):
 
         return guests
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢中的人數信息"""
-        logger.info(f"解析查詢中的人數信息: {query}")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """處理客人信息解析請求"""
+        logger.debug(f"[{self.name}] 開始處理客人信息解析請求")
 
-        # 使用同步方法解析
-        guests = self.parse(query)
+        # 從輸入中提取查詢和上下文
+        query = state.get("query", "")
+        context = state.get("context", {})
 
-        # 如果仍然無法解析，設置默認值
-        if guests["adults"] is None:
-            guests["adults"] = 2  # 默認2位成人
-            logger.info("無法解析成人數量，使用默認值: 2")
+        try:
+            if not query:
+                # 如果沒有查詢文本，嘗試從上下文或其他字段獲取信息
+                if "guests" in context:
+                    return {"guests": context["guests"]}
 
-        if guests["children"] is None:
-            guests["children"] = 0  # 默認0位兒童
-            logger.info("無法解析兒童數量，使用默認值: 0")
+                # 設置默認值
+                default_guests = {"adults": 2, "children": 0}
+                logger.warning("查詢內容為空，使用默認人數：2位成人，0位兒童")
+                return {"guests": default_guests, "message": "查詢內容為空，使用默認人數"}
 
-        return {"guests": guests}
+            # 使用同步方法解析
+            guests = self.parse(query)
 
+            # 如果仍然無法解析，設置默認值
+            if guests["adults"] is None:
+                guests["adults"] = 2  # 默認2位成人
+                logger.info("無法解析成人數量，使用默認值: 2")
 
-# 創建人數解析子Agent實例
-guest_parser_agent = GuestParserAgent()
+            if guests["children"] is None:
+                guests["children"] = 0  # 默認0位兒童
+                logger.info("無法解析兒童數量，使用默認值: 0")
+
+            return {"guests": guests}
+
+        except Exception as e:
+            logger.error(f"[{self.name}] 人數信息解析失敗: {e}")
+            default_guests = {"adults": 2, "children": 0}
+            return {"guests": default_guests, "message": f"人數信息解析失敗（錯誤：{e!s}），使用默認值"}

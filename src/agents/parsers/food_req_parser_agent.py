@@ -7,10 +7,10 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 
 
-class FoodReqParserAgent(BaseSubAgent):
+class FoodReqParserAgent(BaseAgent):
     """食物需求解析子Agent"""
 
     def __init__(self):
@@ -32,26 +32,46 @@ class FoodReqParserAgent(BaseSubAgent):
             re.compile(r"(?:不要晚餐|不含晚餐|不需要晚餐|沒有晚餐)"),
         ]
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢中的餐食需求"""
-        logger.info(f"解析查詢中的餐食需求: {query}")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """處理餐飲需求解析請求"""
+        logger.debug(f"[{self.name}] 開始處理餐飲需求解析請求")
 
-        # TODO: 實現餐食需求解析邏輯
-        # 嘗試使用正則表達式解析餐食需求
-        food_req = self._extract_food_req_with_regex(query)
+        # 從輸入中提取查詢和上下文
+        query = state.get("query", "")
+        context = state.get("context", {})
 
-        return {"food_req": food_req}
+        try:
+            if not query:
+                # 如果沒有查詢文本，嘗試從上下文或其他字段獲取信息
+                if "food_req" in context:
+                    return {"food_req": context["food_req"]}
+
+                logger.warning("查詢內容為空，無法解析餐食需求")
+                return {"food_req": {"has_breakfast": False, "has_lunch": False, "has_dinner": False}}
+
+            # 使用正則表達式解析餐食需求
+            food_req = self._extract_food_req_with_regex(query)
+
+            return {"food_req": food_req}
+
+        except Exception as e:
+            logger.error(f"[{self.name}] 餐食需求解析失敗: {e}")
+            return {
+                "food_req": {"has_breakfast": False, "has_lunch": False, "has_dinner": False},
+                "message": f"餐食需求解析失敗（錯誤：{e!s}）",
+            }
 
     def _extract_food_req_with_regex(self, query: str) -> dict[str, bool]:
         """使用正則表達式從查詢中提取餐食需求"""
-        # TODO: 實現正則表達式解析餐食需求的邏輯
         food_req = {"has_breakfast": False, "has_lunch": False, "has_dinner": False}
 
         # 檢查早餐需求
         for pattern in self.breakfast_patterns:
-            if pattern.search(query):
+            match = pattern.search(query)
+            if match:
                 # 檢查是否是否定表達
-                if "不" in query or "沒" in query:
+                matched_text = match.group(0)
+                if "不" in matched_text or "沒" in matched_text:
                     food_req["has_breakfast"] = False
                 else:
                     food_req["has_breakfast"] = True
@@ -60,9 +80,11 @@ class FoodReqParserAgent(BaseSubAgent):
 
         # 檢查午餐需求
         for pattern in self.lunch_patterns:
-            if pattern.search(query):
+            match = pattern.search(query)
+            if match:
                 # 檢查是否是否定表達
-                if "不" in query or "沒" in query:
+                matched_text = match.group(0)
+                if "不" in matched_text or "沒" in matched_text:
                     food_req["has_lunch"] = False
                 else:
                     food_req["has_lunch"] = True
@@ -71,9 +93,11 @@ class FoodReqParserAgent(BaseSubAgent):
 
         # 檢查晚餐需求
         for pattern in self.dinner_patterns:
-            if pattern.search(query):
+            match = pattern.search(query)
+            if match:
                 # 檢查是否是否定表達
-                if "不" in query or "沒" in query:
+                matched_text = match.group(0)
+                if "不" in matched_text or "沒" in matched_text:
                     food_req["has_dinner"] = False
                 else:
                     food_req["has_dinner"] = True
@@ -81,7 +105,3 @@ class FoodReqParserAgent(BaseSubAgent):
                 break
 
         return food_req
-
-
-# 創建食物需求解析子Agent實例
-food_req_parser_agent = FoodReqParserAgent()

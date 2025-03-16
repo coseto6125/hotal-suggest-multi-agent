@@ -96,3 +96,9 @@ def initialize_config():
 
 # 創建配置實例
 config = initialize_config()
+
+
+def get_config():
+    """獲取配置實例"""
+    global config
+    return config

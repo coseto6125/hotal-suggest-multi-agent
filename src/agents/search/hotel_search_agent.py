@@ -1,449 +1,384 @@
 """
 旅館搜索 Agent 模塊
 
-負責根據用戶查詢參數搜索旅館。
+負責根據解析後的搜索條件搜索旅館。
 """
 
 from typing import Any
 
 from loguru import logger
 
-from src.agents.base.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 from src.api.services import hotel_api_service
 
 
-class HotelSearchAgent(BaseSubAgent):
+class HotelSearchAgent(BaseAgent):
     """旅館搜索Agent"""
 
     def __init__(self):
         """初始化旅館搜索Agent"""
         super().__init__("HotelSearchAgent")
+        self.api_service = hotel_api_service
 
-    #
-    # 公共接口方法
-    #
-    async def run(self, params: dict[str, Any]) -> dict[str, Any]:
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
         """
-        Run 方法，作為 process 方法的別名，用於兼容 workflow.py 中的調用
-
-        參數:
-            params (dict): 搜索參數
-
-        返回:
-            dict: 包含旅館列表的字典
+        處理旅館搜索請求
         """
-        return await self.process(params)
-
-    async def process(self, params: dict[str, Any]) -> dict[str, Any]:
-        """
-        處理旅館搜索
-
-        參數:
-            params (dict): 搜索參數
-                - check_in (str): 入住日期
-                - check_out (str): 退房日期
-                - adults (int): 成人數
-                - children (int): 兒童數
-                - lowest_price (int): 最低價格
-                - highest_price (int): 最高價格
-                - county_ids (list): 縣市ID列表
-                - district_ids (list): 區域ID列表
-                - hotel_facility_ids (list): 旅館設施ID列表
-                - room_facility_ids (list): 房間設施ID列表
-                - has_breakfast (bool): 是否有早餐
-                - has_lunch (bool): 是否有午餐
-                - has_dinner (bool): 是否有晚餐
-                - hotel_group_types (list): 旅館類型
-                - hotel_keyword (str): 旅館關鍵字
-
-        返回:
-            dict: 包含旅館列表的字典，格式為 {"hotel_search_results": [...]}
-        """
-        # 檢查必要參數
-        if not self._validate_required_params(params):
-            return {"hotel_search_results": []}
-
-        # 執行搜索
         try:
-            result = await self._search_hotels(params)
-            return result
+            # 首先檢查是否有預設的搜索參數
+            search_params = state.get("hotel_search_params", {})
+
+            # 如果有預設參數，使用它
+            if search_params:
+                logger.info(f"使用預設搜索參數: {search_params}")
+                return await self._search_hotels(search_params)
+
+            # 否則檢查輸入是否有足夠的搜索條件
+            if not self._has_sufficient_search_conditions(state):
+                logger.warning("搜索條件不足，無法進行旅館搜索")
+                return {"hotel_search_results": [], "search_type": "none", "message": "搜索條件不足，無法進行旅館搜索"}
+
+            # 處理搜索請求
+            return await self._search_hotels(state)
         except Exception as e:
-            logger.error(f"旅館搜索失敗: {e}")
-            return {"hotel_search_results": []}
+            logger.error(f"旅館搜索處理失敗: {e}")
+            return {"hotel_search_results": [], "search_type": "error", "message": f"搜索處理失敗: {e!s}"}
 
-    async def _process(self, input_data: dict | str) -> dict[str, Any]:
-        """
-        處理輸入數據 (BaseSubAgent接口實現)
-
-        參數:
-            input_data (dict|str): 輸入數據
-
-        返回:
-            dict: 包含旅館列表的字典
-        """
-        if isinstance(input_data, str):
-            logger.warning("收到文本輸入，尚未實現從文本提取參數的功能")
-            return {"hotel_search_results": []}
-
-        search_params = self._build_search_params(input_data)
-        return await self._search_hotels(search_params)
-
-    #
-    # 核心搜索方法
-    #
     async def _search_hotels(self, params: dict[str, Any]) -> dict[str, Any]:
         """
-        調用旅館搜索 API 搜索旅館
-
-        參數:
-            params (dict): 搜索參數
-
-        返回:
-            dict: 格式為 {"hotel_search_results": [...]}
+        搜索旅館
         """
+        # 驗證必要的參數
+        if not self._validate_required_params(params):
+            logger.warning("缺少必要的參數，無法進行旅館搜索")
+            return {"hotel_search_results": [], "search_type": "none", "message": "缺少必要的參數，無法進行旅館搜索"}
+
+        # 篩選API參數
+        api_params = self._filter_api_params(params)
+        logger.info(f"旅館搜索參數: {api_params}")
+
+        # 嘗試使用提供的參數進行搜索
         try:
-            # 過濾並準備API參數
-            api_params = self._filter_api_params(params)
-
-            # 檢查是否有足夠的搜索條件，避免過於寬泛的搜索
-            if not self._has_sufficient_search_conditions(api_params):
-                logger.warning("搜索條件過於寬泛，請提供更具體的搜索條件")
-                return {"hotel_search_results": []}
-
-            logger.info(f"搜索旅館，過濾後參數: {api_params}")
-
-            # 執行API調用
-            results = await hotel_api_service.search_hotel_vacancies(api_params)
-
-            # 處理空結果情況
-            if not results:
-                logger.warning("API返回空結果")
-                return {"hotel_search_results": []}
-
-            # 關鍵字過濾（如果有指定）
-            if keyword := params.get("hotel_keyword"):
-                filtered_results = self._filter_by_keyword(results, keyword)
+            results = await self.api_service.search_hotels(api_params)
+            if results:
+                # 過濾有效結果
+                filtered_results = self._filter_valid_results(results)
                 if filtered_results:
-                    return {"hotel_search_results": filtered_results}
+                    self._log_search_results(filtered_results)
+                    return {
+                        "hotel_search_results": filtered_results,
+                        "search_type": "exact",
+                        "message": "成功找到符合條件的旅館",
+                    }
 
-            # 過濾有效結果
-            valid_results = self._filter_valid_results(results)
+            # 如果有關鍵字，嘗試使用關鍵字過濾
+            if params.get("hotel_keyword"):
+                keyword = params["hotel_keyword"]
+                relaxed_results = await self._perform_relaxed_search(params)
+                filtered_by_keyword = self._filter_by_keyword(relaxed_results, keyword)
+                if filtered_by_keyword:
+                    self._log_search_results(filtered_by_keyword)
+                    return {
+                        "hotel_search_results": filtered_by_keyword,
+                        "search_type": "keyword",
+                        "message": f"使用關鍵字 '{keyword}' 找到相關旅館",
+                    }
 
-            # 寬鬆搜索（如果沒有結果）
-            if not valid_results:
-                valid_results = await self._perform_relaxed_search(params)
+            # 嘗試使用放寬條件的搜索
+            relaxed_params = self._build_relaxed_search_params(params)
+            logger.info(f"使用放寬條件進行搜索: {relaxed_params}")
+            relaxed_results = await self.api_service.search_hotels(relaxed_params)
+            if relaxed_results:
+                filtered_relaxed_results = self._filter_valid_results(relaxed_results)
+                if filtered_relaxed_results:
+                    self._log_search_results(filtered_relaxed_results)
+                    return {
+                        "hotel_search_results": filtered_relaxed_results,
+                        "search_type": "relaxed",
+                        "message": "找到部分符合條件的旅館(放寬條件後搜尋)",
+                    }
 
-            # 返回結果
-            if valid_results:
-                self._log_search_results(valid_results)
-
-            return {"hotel_search_results": valid_results}
+            # 所有搜索都失敗，返回空結果
+            logger.warning("未找到符合條件的旅館")
+            return {"hotel_search_results": [], "search_type": "none", "message": "未找到符合條件的旅館"}
 
         except Exception as e:
-            logger.error(f"調用旅館搜索API失敗: {e}")
-            import traceback
+            logger.error(f"旅館搜索出現異常: {e}")
+            return {"hotel_search_results": [], "error": str(e), "message": f"旅館搜索出現異常: {e!s}"}
 
-            logger.error(traceback.format_exc())
-            return {"hotel_search_results": []}
-
-    #
-    # 驗證方法
-    #
     def _has_sufficient_search_conditions(self, params: dict[str, Any]) -> bool:
         """
         檢查是否有足夠的搜索條件
-
-        參數:
-            params (dict): API參數
-
-        返回:
-            bool: 是否有足夠的搜索條件
         """
-        # 至少需要縣市ID或地區ID
-        has_location = "county_ids" in params or "district_ids" in params
-
-        # 如果有詳細的位置信息，則視為有足夠的搜索條件
-        if has_location:
-            return True
-
-        # 如果有酒店關鍵字，也視為有足夠的搜索條件
-        if params.get("hotel_keyword"):
-            return True
-
-        # 如果同時指定了入住和退房日期，也視為有足夠的搜索條件
-        if "check_in" in params and "check_out" in params:
-            return True
-
-        # 否則認為條件不足
-        return False
-
-    #
-    # 參數處理方法
-    #
-    def _validate_required_params(self, params: dict[str, Any]) -> bool:
-        """
-        檢查必要參數是否存在
-
-        參數:
-            params (dict): 搜索參數
-
-        返回:
-            bool: 是否包含所有必要參數
-        """
-        # 對於基本搜索，位置信息是最重要的
-        if not params.get("county_ids") and not params.get("district_ids") and not params.get("hotel_keyword"):
-            logger.warning("缺少關鍵搜索條件: 需要縣市ID、地區ID或酒店關鍵字")
+        # 檢查是否有任何搜索條件
+        if not params:
             return False
 
-        return True
+        # 檢查是否有關鍵搜索條件之一
+        critical_params = ["county_ids", "district_ids", "hotel_id", "hotel_keyword"]
+        has_critical_param = any(params.get(param) for param in critical_params)
+
+        # 檢查是否有充分的參數組合
+        sufficient_combinations = [
+            # 縣市 + 入住日期
+            (params.get("county_ids") and params.get("check_in")),
+            # 縣市 + 人數
+            (params.get("county_ids") and params.get("adults")),
+            # 鄉鎮區 + 入住日期
+            (params.get("district_ids") and params.get("check_in")),
+            # 鄉鎮區 + 人數
+            (params.get("district_ids") and params.get("adults")),
+            # 酒店ID
+            bool(params.get("hotel_id")),
+            # 關鍵字
+            bool(params.get("hotel_keyword")),
+        ]
+
+        # 如果任一組合成立，則認為有足夠的搜索條件
+        return has_critical_param or any(sufficient_combinations)
+
+    def _validate_required_params(self, params: dict[str, Any]) -> bool:
+        """
+        驗證必要參數
+        """
+        # 至少需要一個搜索條件
+        required_params = [
+            "county_id",  # 從 hotel_search_params 獲取的縣市ID
+            "county_ids",  # 從狀態獲取的縣市ID列表
+            "district_ids",
+            "hotel_id",
+            "hotel_keyword",
+            "hotel_name",
+            "hotel_group_types",
+        ]
+        has_required = any(params.get(param) for param in required_params)
+
+        # 檢查並記錄找到的參數
+        if has_required:
+            found_params = [param for param in required_params if params.get(param)]
+            logger.info(f"找到必要參數: {found_params}")
+        else:
+            logger.warning(f"缺少必要參數，參數列表: {list(params.keys())}")
+
+        return has_required
 
     def _filter_api_params(self, params: dict[str, Any]) -> dict[str, Any]:
         """
-        過濾出API需要的參數，並進行必要的類型轉換
-
-        參數:
-            params (dict): 原始參數
-
-        返回:
-            dict: 過濾後的API參數
+        篩選出適用於API的參數
         """
-        api_params = {}
-
-        # 處理時間參數
-        for date_param in ["check_in", "check_out"]:
-            if params.get(date_param):
-                api_params[date_param] = str(params[date_param])
-
-        # 處理人數參數
-        for int_param in ["adults", "children"]:
-            if int_param in params and params[int_param] is not None:
-                try:
-                    api_params[int_param] = int(params[int_param])
-                except (ValueError, TypeError):
-                    logger.warning(f"無法將 {int_param} 轉換為整數: {params[int_param]}")
-                    api_params[int_param] = 2 if int_param == "adults" else 0
-
-        # 處理地點參數
-        for location_param in ["county_ids", "district_ids"]:
-            if params.get(location_param):
-                location_value = params[location_param]
-                if isinstance(location_value, list) and location_value:
-                    api_params[location_param] = location_value
-                elif not isinstance(location_value, list) and location_value:
-                    api_params[location_param] = [location_value]
-
-        # 處理價格參數
-        for price_param in ["lowest_price", "highest_price"]:
-            if params.get(price_param):
-                try:
-                    price_value = int(params[price_param])
-                    if price_value > 0:
-                        api_params[price_param] = price_value
-                except (ValueError, TypeError):
-                    logger.warning(f"無法將 {price_param} 轉換為整數: {params[price_param]}")
-
-        # 處理布爾參數
-        for bool_param in ["has_breakfast", "has_lunch", "has_dinner"]:
-            if bool_param in params:
-                try:
-                    bool_value = bool(params[bool_param])
-                    api_params[bool_param] = "1" if bool_value else "0"
-                except Exception as e:
-                    logger.warning(f"轉換 {bool_param} 失敗: {e}")
-
-        # 處理其他可選參數
-        if params.get("hotel_group_types"):
-            api_params["hotel_group_types"] = params["hotel_group_types"]
-
-        if params.get("hotel_keyword"):
-            api_params["hotel_keyword"] = params["hotel_keyword"]
-
-        for facility_param in ["hotel_facility_ids", "room_facility_ids"]:
-            if params.get(facility_param):
-                if isinstance(params[facility_param], list) and params[facility_param]:
-                    api_params[facility_param] = params[facility_param]
-
-        return api_params
-
-    def _build_search_params(self, parsed_query: dict[str, Any]) -> dict[str, Any]:
-        """
-        從解析的查詢中構建搜索參數
-
-        參數:
-            parsed_query (dict): 解析後的查詢資料
-
-        返回:
-            dict: 搜索參數
-        """
-        params = {}
-
-        # 處理位置信息
-        if destination := parsed_query.get("destination", {}):
-            params["county_ids"] = [destination.get("county")] if destination.get("county") else []
-            params["district_ids"] = [destination.get("district")] if destination.get("district") else []
-
-        # 處理日期信息
-        if dates := parsed_query.get("dates", {}):
-            params["check_in"] = dates.get("check_in")
-            params["check_out"] = dates.get("check_out")
-
-        # 處理人數信息
-        if guests := parsed_query.get("guests", {}):
-            params["adults"] = guests.get("adults", 2)
-            params["children"] = guests.get("children", 0)
-
-        # 處理預算信息
-        if budget := parsed_query.get("budget", {}):
-            params["lowest_price"] = budget.get("min", 0)
-            params["highest_price"] = budget.get("max", 0)
-
-        # 處理旅館類型
-        if hotel_type := parsed_query.get("hotel_type"):
-            params["hotel_group_types"] = [hotel_type]
-
-        # 處理特殊需求
-        if facilities := parsed_query.get("special_requirements", []):
-            params["hotel_facility_ids"] = facilities
-
-        # 處理關鍵字搜索
-        if keyword := parsed_query.get("keyword"):
-            params["hotel_keyword"] = keyword
-
-        return params
-
-    def _build_relaxed_search_params(self, params: dict[str, Any]) -> dict[str, Any]:
-        """
-        構建更寬鬆的搜索參數，降低搜索條件
-
-        參數:
-            params (dict): 原始搜索參數
-
-        返回:
-            dict: 寬鬆搜索參數
-        """
-        relaxed_params = params.copy()
-
-        # 確保至少保留縣市ID或關鍵字，否則搜索範圍太大
-        if not relaxed_params.get("county_ids") and not relaxed_params.get("hotel_keyword"):
-            logger.warning("無法執行寬鬆搜索: 原始參數中缺少縣市ID或關鍵字")
-            return relaxed_params
-
-        # 移除限制較嚴格的條件
-        for key in [
+        # 定義API接受的參數名列表
+        api_params = [
+            "county_ids",
             "district_ids",
-            "lowest_price",
-            "highest_price",
-            "hotel_facility_ids",
-            "room_facility_ids",
+            "hotel_id",
+            "hotel_keyword",
+            "hotel_name",
+            "hotel_group_types",
+            "room_types",
+            "adults",
+            "children",
             "has_breakfast",
             "has_lunch",
             "has_dinner",
-        ]:
-            relaxed_params.pop(key, None)
+            "check_in",
+            "check_out",
+            "lowest_price",
+            "highest_price",
+        ]
 
-        # 如果有多個縣市，只保留第一個
-        if county_ids := relaxed_params.get("county_ids"):
-            if isinstance(county_ids, list) and len(county_ids) > 1:
-                relaxed_params["county_ids"] = [county_ids[0]]
+        # 創建要返回的參數字典
+        result = {}
+
+        # 將 county_id 轉換為 county_ids
+        if params.get("county_id"):
+            result["county_ids"] = [params["county_id"]]
+
+        # 複製其他API接受的參數
+        for param in api_params:
+            if params.get(param):
+                result[param] = params[param]
+
+        # 價格範圍處理
+        if params.get("lowest_price"):
+            result["lowest_price"] = params["lowest_price"]
+        if params.get("highest_price"):
+            result["highest_price"] = params["highest_price"]
+
+        # 記錄最終使用的API參數
+        logger.info(f"篩選後的API參數: {result}")
+
+        return result
+
+    def _build_search_params(self, parsed_query: dict[str, Any]) -> dict[str, Any]:
+        """
+        從解析後的查詢構建搜索參數
+        """
+        search_params = {}
+
+        # 提取地理數據
+        if "geo" in parsed_query:
+            geo_data = parsed_query["geo"]
+            search_params["county_ids"] = geo_data.get("county_ids", [])
+            search_params["district_ids"] = geo_data.get("district_ids", [])
+
+        # 提取日期
+        if "dates" in parsed_query:
+            date_data = parsed_query["dates"]
+            search_params["check_in"] = date_data.get("check_in")
+            search_params["check_out"] = date_data.get("check_out")
+
+        # 提取人數
+        if "guests" in parsed_query:
+            guest_data = parsed_query["guests"]
+            search_params["adults"] = guest_data.get("adults", 2)
+            search_params["children"] = guest_data.get("children", 0)
+
+        # 提取預算
+        if "budget" in parsed_query:
+            budget_data = parsed_query["budget"]
+            search_params["lowest_price"] = budget_data.get("min")
+            search_params["highest_price"] = budget_data.get("max")
+
+        # 提取旅館類型
+        if "hotel_type" in parsed_query:
+            search_params["hotel_group_types"] = parsed_query["hotel_type"]
+
+        # 提取關鍵字
+        if "keywords" in parsed_query:
+            keyword_data = parsed_query["keywords"]
+            search_params["hotel_keyword"] = keyword_data.get("hotel_keyword")
+
+        # 提取食物需求
+        if "food_req" in parsed_query:
+            food_data = parsed_query["food_req"]
+            search_params["has_breakfast"] = food_data.get("has_breakfast", False)
+
+        return search_params
+
+    def _build_relaxed_search_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """
+        構建放寬條件的搜索參數
+        """
+        # 複製原參數
+        relaxed_params = params.copy()
+
+        # 放寬條件的策略
+        # 1. 移除價格範圍限制
+        if "lowest_price" in relaxed_params:
+            del relaxed_params["lowest_price"]
+        if "highest_price" in relaxed_params:
+            del relaxed_params["highest_price"]
+
+        # 2. 移除設施要求
+        if "hotel_facility_ids" in relaxed_params:
+            del relaxed_params["hotel_facility_ids"]
+        if "room_facility_ids" in relaxed_params:
+            del relaxed_params["room_facility_ids"]
+
+        # 3. 如果有縣市但沒有鄉鎮區，保留縣市
+        if relaxed_params.get("county_ids") and relaxed_params.get("district_ids"):
+            # 如果同時有縣市和鄉鎮區，只保留縣市範圍
+            del relaxed_params["district_ids"]
+
+        # 4. 保留人數要求，但移除其他特殊要求
+        special_reqs = ["has_breakfast", "has_lunch", "has_dinner", "room_types", "bed_type"]
+        for req in special_reqs:
+            if req in relaxed_params:
+                del relaxed_params[req]
 
         return relaxed_params
 
-    #
-    # 結果處理方法
-    #
     def _filter_by_keyword(self, results: list, keyword: str) -> list:
         """
-        使用關鍵字過濾旅館結果
-
-        參數:
-            results (list): 旅館結果列表
-            keyword (str): 關鍵字
-
-        返回:
-            list: 過濾後的旅館列表
+        使用關鍵字過濾結果
         """
-        if not keyword or len(keyword) <= 1:
+        # 如果關鍵字為空或結果為空，直接返回
+        if not keyword or not results:
             return results
 
-        logger.info(f"使用關鍵字「{keyword}」過濾旅館")
-        filtered_results = [
-            hotel
-            for hotel in results
-            if isinstance(hotel, dict) and "name" in hotel and keyword.lower() in hotel["name"].lower()
-        ]
+        # 將關鍵字轉為小寫以進行不區分大小寫的比較
+        keyword_lower = keyword.lower()
 
-        if filtered_results:
-            logger.success(f"找到 {len(filtered_results)} 間名稱包含「{keyword}」的旅館")
-            return filtered_results
+        # 過濾結果
+        filtered_results = []
+        for hotel in results:
+            # 檢查旅館名稱是否包含關鍵字
+            if "name" in hotel and keyword_lower in hotel["name"].lower():
+                filtered_results.append(hotel)
+                continue
 
-        logger.warning(f"未找到名稱包含「{keyword}」的旅館，返回所有結果")
-        return []
+            # 檢查旅館地址是否包含關鍵字
+            if "address" in hotel and keyword_lower in hotel["address"].lower():
+                filtered_results.append(hotel)
+                continue
+
+            # 檢查旅館描述是否包含關鍵字
+            if "description" in hotel and hotel["description"] and keyword_lower in hotel["description"].lower():
+                filtered_results.append(hotel)
+                continue
+
+        return filtered_results
 
     def _filter_valid_results(self, results: list) -> list:
         """
-        過濾有效的旅館結果
-
-        參數:
-            results (list): 旅館結果列表
-
-        返回:
-            list: 有效的旅館列表
+        過濾有效的結果
         """
+        # 如果結果為空，直接返回
         if not results:
             return []
 
-        # 過濾掉包含error_message的結果和非字典結果
-        valid_results = [hotel for hotel in results if isinstance(hotel, dict) and "error_message" not in hotel]
-
-        # 驗證數據結構
-        valid_hotels = []
-        required_fields = ["id", "name", "address"]
-
-        for hotel in valid_results:
-            missing_fields = [field for field in required_fields if field not in hotel]
-            if missing_fields:
-                logger.warning(f"旅館 {hotel.get('id', 'unknown')} 缺少必要欄位: {missing_fields}")
+        # 過濾結果
+        valid_results = []
+        for hotel in results:
+            # 檢查是否有必要的字段
+            if not hotel.get("id") or not hotel.get("name"):
                 continue
-            valid_hotels.append(hotel)
 
-        return valid_hotels
+            # 檢查旅館名稱是否合法
+            if not isinstance(hotel["name"], str) or len(hotel["name"]) < 2:
+                continue
+
+            # 如果有評分，檢查評分是否合法
+            if "rating" in hotel and hotel["rating"] is not None:
+                try:
+                    rating = float(hotel["rating"])
+                    if rating < 0 or rating > 5:
+                        hotel["rating"] = None
+                except (ValueError, TypeError):
+                    hotel["rating"] = None
+
+            valid_results.append(hotel)
+
+        return valid_results
 
     async def _perform_relaxed_search(self, params: dict[str, Any]) -> list:
         """
-        執行寬鬆條件的搜索
-
-        參數:
-            params (dict): 原始搜索參數
-
-        返回:
-            list: 搜索結果
+        執行放寬條件的搜索
         """
-        logger.info("未找到有效旅館，嘗試使用更寬鬆的條件")
+        # 構建放寬條件的搜索參數
         relaxed_params = self._build_relaxed_search_params(params)
 
-        # 檢查寬鬆參數是否有效
-        if not relaxed_params.get("county_ids") and not relaxed_params.get("hotel_keyword"):
-            logger.warning("寬鬆搜索參數無效，無法執行寬鬆搜索")
-            return []
+        # 執行搜索
+        try:
+            logger.info(f"使用放寬條件進行搜索: {relaxed_params}")
+            results = await self.api_service.search_hotels(relaxed_params)
+            if results:
+                return self._filter_valid_results(results)
+        except Exception as e:
+            logger.error(f"放寬條件搜索出現異常: {e}")
 
-        relaxed_api_params = self._filter_api_params(relaxed_params)
-
-        logger.info(f"使用寬鬆參數搜索: {relaxed_api_params}")
-        results = await hotel_api_service.search_hotel_vacancies(relaxed_api_params)
-
-        return self._filter_valid_results(results)
+        return []
 
     def _log_search_results(self, results: list) -> None:
         """
         記錄搜索結果
-
-        參數:
-            results (list): 旅館結果列表
         """
-        logger.info(f"搜索到 {len(results)} 個有效旅館")
-        if results:
-            hotel_names = [h.get("name", "未命名") for h in results[:3]]
-            logger.info(f"有效旅館示例: {', '.join(hotel_names)}")
+        logger.info(f"找到 {len(results)} 個旅館")
+        if len(results) > 0:
+            hotel_names = ", ".join(hotel.get("name", "未命名") for hotel in results[:5])
+            if len(results) > 5:
+                hotel_names += f" 等{len(results)}家旅館"
+            logger.info(f"旅館名稱預覽: {hotel_names}")
 
 
 # 創建旅館搜索Agent實例
