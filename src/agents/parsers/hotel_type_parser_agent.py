@@ -63,9 +63,9 @@ class HotelTypeParserAgent(BaseAgent):
             hotel_type = self._extract_hotel_type_with_regex(query)
 
             # 如果正則表達式無法解析，嘗試使用LLM
-            if not hotel_type:
-                logger.debug("正則表達式無法解析旅館類型，嘗試使用LLM")
-                hotel_type = await self._extract_hotel_type_with_llm(query)
+            # if not hotel_type:
+            #     logger.debug("正則表達式無法解析旅館類型，嘗試使用LLM")
+            #     hotel_type = await self._extract_hotel_type_with_llm(query)
 
             # 如果仍然無法解析，使用預設值
             if not hotel_type:
