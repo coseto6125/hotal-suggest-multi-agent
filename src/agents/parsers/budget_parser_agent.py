@@ -31,6 +31,10 @@ class BudgetParserAgent(BaseAgent):
             # 單一價格格式：X元/塊/NT$/台幣
             re.compile(r"(\d+(?:,\d+)?)\s*(?:元|塊|NT\$|台幣|TWD|NTD|新台幣)(?:/晚|每晚|一晚)?"),
         ]
+        self.err_result = {
+            "error": "未從查詢中提取到預算信息",
+            "err_msg": "不好意思，我目前無法從您的訊息中得知預算範圍，方便提供一下嗎？",
+        }
 
     async def process(self, state: dict[str, Any]) -> dict[str, Any]:
         """
@@ -43,17 +47,6 @@ class BudgetParserAgent(BaseAgent):
         context = state.get("context", {})
 
         try:
-            if not query:
-                # 如果沒有查詢文本，嘗試從上下文或其他字段獲取信息
-                if "budget" in context:
-                    return {
-                        "lowest_price": context["budget"].get("min", 0),
-                        "highest_price": context["budget"].get("max", 0),
-                    }
-
-                logger.warning(f"[{self.name}] 沒有有效的查詢文本和預算上下文")
-                return {}
-
             # 使用正則表達式提取預算信息
             budget_info = self._extract_budget_with_regex(query)
 
@@ -61,7 +54,7 @@ class BudgetParserAgent(BaseAgent):
             if not budget_info or not (budget_info.get("lowest_price") or budget_info.get("highest_price")):
                 # 如果沒有提取到預算，返回空結果
                 logger.info(f"[{self.name}] 未從查詢 '{query}' 中提取到預算信息")
-                return {}
+                return self.err_result
 
             # 驗證預算範圍 - 不再自動填充缺失的價格
             self._validate_budget_range(budget_info)
@@ -71,7 +64,7 @@ class BudgetParserAgent(BaseAgent):
 
         except Exception as e:
             logger.error(f"[{self.name}] 預算解析出錯: {e}")
-            return {}
+            return self.err_result
 
     def _extract_budget_with_regex(self, query: str) -> dict[str, Any]:
         """使用正則表達式從查詢中提取預算"""

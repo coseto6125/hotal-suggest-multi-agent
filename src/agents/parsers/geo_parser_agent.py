@@ -17,6 +17,7 @@ class GeoParserAgent(BaseAgent):
     def __init__(self):
         """初始化地理名稱解析子Agent"""
         super().__init__("GeoParserAgent")
+        self.err_result = {"error": "地理名稱解析失敗", "err_msg": "抱歉，似乎我無法找到您要前往的地點，能否再提供一次呢？"}
 
     async def process(self, state: dict[str, Any]) -> dict[str, Any]:
         """
@@ -37,16 +38,7 @@ class GeoParserAgent(BaseAgent):
                     return result
 
                 logger.warning("查詢內容為空，無法解析地理名稱")
-                result = {
-                    "destination": {"county": None, "district": None},
-                    "county_name": None,
-                    "district_name": None,
-                    "county_ids": [],
-                    "district_ids": [],
-                    "message": "查詢內容為空，無法解析地理名稱",
-                    "geo_parsed": False,
-                }
-                return result
+                return self.err_result
 
             # 確保地理資料快取已初始化
             if not geo_cache._initialized:
@@ -104,8 +96,4 @@ class GeoParserAgent(BaseAgent):
         except Exception as e:
             logger.error(f"解析地理名稱時出錯: {e!s}")
             # 返回空結果並標記解析失敗
-            return {
-                "destination": {"county": None, "district": None},
-                "message": f"解析地理名稱時出錯: {e!s}",
-                "geo_parsed": False,
-            }
+            return {"error": f"解析地理名稱時出錯: {e!s}", "err_msg": "抱歉，似乎我無法找到您要前往的地點，能否再提供一次呢？"}

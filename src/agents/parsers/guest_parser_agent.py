@@ -396,15 +396,6 @@ class GuestParserAgent(BaseAgent):
             if guests["adults"] is not None or guests["children"] is not None:
                 logger.debug(f"使用正則表達式解析到人數: 成人={guests['adults']}, 兒童={guests['children']}")
 
-        # 如果仍然無法解析，設置默認值
-        if guests["adults"] is None:
-            guests["adults"] = 2  # 默認2位成人
-            logger.info("無法解析成人數量，使用默認值: 2")
-
-        if guests["children"] is None:
-            guests["children"] = 0  # 默認0位兒童
-            logger.info("無法解析兒童數量，使用默認值: 0")
-
         return guests
 
     def _extract_family_size(self, query: str) -> int | None:
@@ -917,31 +908,12 @@ class GuestParserAgent(BaseAgent):
         context = state.get("context", {})
 
         try:
-            if not query:
-                # 如果沒有查詢文本，嘗試從上下文或其他字段獲取信息
-                if "guests" in context:
-                    return {"guests": context["guests"]}
-
-                # 設置默認值
-                default_guests = {"adults": 2, "children": 0}
-                logger.warning("查詢內容為空，使用默認人數：2位成人，0位兒童")
-                return {"guests": default_guests, "message": "查詢內容為空，使用默認人數"}
-
             # 使用同步方法解析
             guests = self.parse(query)
-
-            # 如果仍然無法解析，設置默認值
-            if guests["adults"] is None:
-                guests["adults"] = 2  # 默認2位成人
-                logger.info("無法解析成人數量，使用默認值: 2")
-
-            if guests["children"] is None:
-                guests["children"] = 0  # 默認0位兒童
-                logger.info("無法解析兒童數量，使用默認值: 0")
-
-            return {"guests": guests}
+            if guests.get("adults") is None:
+                return {"error": "人數解析失敗", "err_msg": "抱歉，無法辨識您的人數訊息，您也可用'2大1小'的方式表達喔！謝謝。"}
+            return guests
 
         except Exception as e:
             logger.error(f"[{self.name}] 人數信息解析失敗: {e}")
-            default_guests = {"adults": 2, "children": 0}
-            return {"guests": default_guests, "message": f"人數信息解析失敗（錯誤：{e!s}），使用默認值"}
+            return {"error": f"人數信息解析失敗（錯誤：{e!s}）", "err_msg": "抱歉，無法辨識您的人數訊息，您也可用'2大1小'的方式表達喔！謝謝。"}
