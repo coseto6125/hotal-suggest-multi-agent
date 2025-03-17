@@ -9,9 +9,12 @@ from unittest.mock import patch
 
 import pytest
 
+import pytest
+
 from src.agents.date_parser_agent import DateParserAgent
 
 
+@pytest.mark.asyncio
 class TestDateParserAgent(unittest.TestCase):
     """測試日期解析子Agent"""
 
@@ -171,12 +174,34 @@ class TestDateParserAgent(unittest.TestCase):
             # 設置 mock 返回值
             mock_extract_dates.return_value = expected
 
+<<<<<<< HEAD
             # 執行測試
             result = await self.agent._process_query(query, {})
+=======
+    def test_extract_dates_with_llm(self):
+        """測試使用LLM解析日期（同步包裝）"""
+        # 跳過此測試，因為它需要實際調用LLM服務
+        self.skipTest("此測試需要實際調用LLM服務，跳過")
+        # 如果需要運行，取消下面的註釋
+        # self.loop.run_until_complete(self._async_test_extract_dates_with_llm())
+
+    async def _async_test_process(self):
+        """測試處理查詢（異步測試輔助方法）"""
+        # 測試完整的查詢處理流程
+        test_cases = [f"我想在{self.future_date1}入住，{self.future_date2}退房", "明天有空房嗎", "下週想訂房"]
+
+        for query in test_cases:
+            result = await self.agent._process(query, {})
+            self.assertIn("dates", result)
+            dates = result["dates"]
+            self.assertIn("check_in", dates)
+            self.assertIn("check_out", dates)
+>>>>>>> df780b1da9c74a9092bde90d3df970fceb0e28e3
 
             # 驗證 duckling_service.extract_dates 被正確調用
             mock_extract_dates.assert_called_with(query)
 
+<<<<<<< HEAD
             # 驗證結果
             self.assertEqual(result["dates"], expected)
 
@@ -247,6 +272,14 @@ class TestDateParserAgent(unittest.TestCase):
     def test_process_query_with_duckling_empty(self):
         """測試當 Duckling 服務返回空結果時的處理（同步包裝）"""
         self.loop.run_until_complete(self._async_test_process_query_with_duckling_empty())
+=======
+    def test_process(self):
+        """測試處理查詢（同步包裝）"""
+        # 跳過此測試，因為它可能需要調用LLM服務
+        self.skipTest("此測試可能需要調用LLM服務，跳過")
+        # 如果需要運行，取消下面的註釋
+        # self.loop.run_until_complete(self._async_test_process())
+>>>>>>> df780b1da9c74a9092bde90d3df970fceb0e28e3
 
     def test_integration(self):
         """集成測試：測試各種日期表達方式的解析"""

@@ -8,11 +8,15 @@ from typing import Any
 
 from loguru import logger
 
+<<<<<<< HEAD:src/agents/date_parser_agent.py
 from src.agents.base_sub_agent import BaseSubAgent
 from src.services.duckling_service import duckling_service
+=======
+from src.agents.base.base_agent import BaseAgent
+>>>>>>> df780b1da9c74a9092bde90d3df970fceb0e28e3:src/agents/parsers/date_parser_agent.py
 
 
-class DateParserAgent(BaseSubAgent):
+class DateParserAgent(BaseAgent):
     """日期解析子Agent"""
 
     def __init__(self):
@@ -29,11 +33,14 @@ class DateParserAgent(BaseSubAgent):
             # 中文日期格式：X月X號
             re.compile(r"(\d{1,2})月(\d{1,2})號"),
         ]
+        self.err_result = {"error": "日期解析失敗", "err_msg": "不好意思，似乎我沒有找到您的入住日期，可以麻煩您再提供一次嗎？"}
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的旅遊日期"""
-        logger.info(f"解析查詢中的旅遊日期: {query}")
+        query = state.get("query", "")
+        context = state.get("context", {})
 
+<<<<<<< HEAD:src/agents/date_parser_agent.py
         # 使用 Duckling 服務提取日期
         try:
             dates = await duckling_service.extract_dates(query)
@@ -72,11 +79,50 @@ class DateParserAgent(BaseSubAgent):
 
                 if not dates.get("check_out") and inferred_dates.get("check_out"):
                     dates["check_out"] = inferred_dates["check_out"]
+=======
+        logger.debug(f"[{self.name}] 開始解析日期")
+        try:
+            # 嘗試使用正則表達式解析日期
+            dates = self._extract_dates_with_regex(query)
 
-        # 驗證日期的有效性
-        self._validate_dates(dates)
+            # 如果仍然無法解析，嘗試根據上下文推斷
+            if not dates.get("check_in") or not dates.get("check_out"):
+                inferred_dates = self._infer_dates(query)
 
-        return {"dates": dates}
+                # 合併結果，優先使用已解析的結果
+                if not dates.get("check_in") and inferred_dates.get("check_in"):
+                    dates["check_in"] = inferred_dates["check_in"]
+                if not dates.get("check_out") and inferred_dates.get("check_out"):
+                    dates["check_out"] = inferred_dates["check_out"]
+
+            # 驗證日期的有效性
+            self._validate_dates(dates)
+
+            logger.info(
+                f"[{self.name}] 解析結果：入住 {dates.get('check_in', '未知')}，退房 {dates.get('check_out', '未知')}"
+            )
+
+            # 如果都無法解析，返回空值
+            if not dates.get("check_in") and not dates.get("check_out"):
+                return self.err_result
+
+            # 確保退房日期在入住日期之後
+            if dates.get("check_in") and dates.get("check_out"):
+                checkin_date = datetime.strptime(dates["check_in"], "%Y-%m-%d")
+                checkout_date = datetime.strptime(dates["check_out"], "%Y-%m-%d")
+                if checkin_date >= checkout_date:
+                    # 如果退房日期不在入住日期之後，設置為入住日期後一天
+                    checkout_date = checkin_date + timedelta(days=1)
+                    dates["check_out"] = checkout_date.strftime("%Y-%m-%d")
+                    logger.warning(f"[{self.name}] 退房日期不在入住日期之後，自動調整為：{dates['check_out']}")
+>>>>>>> df780b1da9c74a9092bde90d3df970fceb0e28e3:src/agents/parsers/date_parser_agent.py
+
+            return dates
+
+        except Exception as e:
+            logger.error(f"[{self.name}] 日期解析失敗: {e}")
+
+            return self.err_result
 
     def _extract_dates_with_regex(self, query: str) -> dict[str, str]:
         """使用正則表達式從查詢中提取日期"""
@@ -190,7 +236,3 @@ class DateParserAgent(BaseSubAgent):
             except ValueError:
                 logger.error(f"無效的退房日期格式: {dates['check_out']}")
                 dates["check_out"] = None
-
-
-# 創建日期解析子Agent實例
-date_parser_agent = DateParserAgent()

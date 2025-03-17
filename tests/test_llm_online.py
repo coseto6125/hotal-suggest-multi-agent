@@ -20,7 +20,6 @@ logger.info(f"OLLAMA_MODEL: {os.getenv('OLLAMA_MODEL')}")
 # 導入 llm_service 實例
 try:
     logger.info("開始導入 llm_service 實例")
-    from src.services.llm_service import llm_service
 
     logger.info("成功導入 llm_service 實例")
 except Exception as e:

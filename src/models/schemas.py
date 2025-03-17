@@ -151,14 +151,14 @@ class ChatRequest(BaseModel):
     """聊天請求模型"""
 
     message: str = Field(..., description="用戶消息")
-    conversation_id: str | None = Field(None, description="對話ID，首次對話可為空")
+    session_id: str | None = Field(None, description="會話ID，首次對話可為空")
 
 
 class ChatResponse(BaseModel):
     """聊天響應模型"""
 
     message: str = Field(..., description="助手回覆")
-    conversation_id: str = Field(..., description="對話ID")
+    session_id: str = Field(..., description="會話ID")
     is_complete: bool = Field(..., description="是否為完整回覆")
 
 
@@ -166,8 +166,12 @@ class StreamChatResponse(BaseModel):
     """流式聊天響應模型"""
 
     message_chunk: str = Field(..., description="助手回覆片段")
-    conversation_id: str = Field(..., description="對話ID")
+    session_id: str = Field(..., description="會話ID")
     is_complete: bool = Field(..., description="是否為完整回覆")
     stage: str | None = Field(None, description="處理階段，如'parse_query', 'geo_parse', 'search_hotels'等")
     geo_data: dict | None = Field(None, description="地理位置數據")
     error: str | None = Field(None, description="錯誤信息")
+    is_collapsible: bool | None = Field(None, description="是否可摺疊")
+
+    class Config:
+        extra = "allow"  # 允許額外的屬性

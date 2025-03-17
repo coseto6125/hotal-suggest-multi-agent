@@ -7,11 +7,10 @@ from typing import Any
 
 from loguru import logger
 
-from src.agents.base_sub_agent import BaseSubAgent
-from src.services.llm_service import llm_service
+from src.agents.base.base_agent import BaseAgent
 
 
-class KeywordParserAgent(BaseSubAgent):
+class KeywordParserAgent(BaseAgent):
     """旅館名稱/關鍵字解析子Agent"""
 
     def __init__(self):
@@ -70,28 +69,48 @@ class KeywordParserAgent(BaseSubAgent):
             re.compile(r"'([^']+)'(?:方案|專案|套餐|行程|計劃|計畫|package)"),
         ]
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢中的旅館名稱和關鍵字"""
-        logger.info(f"解析查詢中的旅館名稱和關鍵字: {query}")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """處理關鍵字解析請求"""
+        logger.debug(f"[{self.name}] 開始處理關鍵字解析請求")
 
-        # 嘗試使用正則表達式解析旅館名稱和關鍵字
-        keywords = self._extract_keywords_with_regex(query)
+        # 從輸入中提取查詢和上下文
+        query = state.get("query", "")
+        context = state.get("context", {})
 
-        # 如果正則表達式無法解析，使用LLM解析
-        if not keywords["hotel_keyword"] and not keywords["plan_keyword"]:
-            llm_keywords = await self._extract_keywords_with_llm(query)
+        try:
+            if not query:
+                # 如果沒有查詢文本，嘗試從上下文或其他字段獲取信息
+                if "keywords" in context:
+                    return {"keywords": context["keywords"]}
 
-            # 合併結果
-            if llm_keywords["hotel_keyword"]:
-                keywords["hotel_keyword"] = llm_keywords["hotel_keyword"]
-            if llm_keywords["plan_keyword"]:
-                keywords["plan_keyword"] = llm_keywords["plan_keyword"]
+                logger.warning("查詢內容為空，無法解析關鍵字")
+                return {"keywords": {}, "message": "查詢內容為空，無法解析關鍵字"}
 
-        # 檢查是否是關鍵字搜尋模式
-        is_keyword_search = self._is_keyword_search_mode(query, keywords)
-        keywords["is_keyword_search"] = is_keyword_search
+            # 首先嘗試使用正則表達式解析關鍵字
+            keywords = self._extract_keywords_with_regex(query)
 
-        return keywords
+            # 如果正則表達式提取的關鍵字不足，則嘗試使用LLM提取
+            # 如果keywords是空字典或只有一個鍵（例如只提取到hotel_name）
+            if len(keywords) <= 1:
+                logger.debug("正則表達式提取的關鍵字不足，嘗試使用LLM提取")
+                llm_keywords = await self._extract_keywords_with_llm(query)
+
+                # 合併兩個結果，優先使用正則表達式提取的結果
+                for key, value in llm_keywords.items():
+                    if key not in keywords or not keywords[key]:
+                        keywords[key] = value
+
+            # 根據提取到的關鍵字，判斷是否為關鍵字搜索模式
+            is_keyword_search = self._is_keyword_search_mode(query, keywords)
+
+            # 添加搜索模式標記
+            keywords["search_mode"] = "keyword" if is_keyword_search else "normal"
+
+            return {"keywords": keywords}
+
+        except Exception as e:
+            logger.error(f"[{self.name}] 關鍵字解析失敗: {e}")
+            return {"keywords": {}, "message": f"關鍵字解析失敗（錯誤：{e!s}）"}
 
     def _extract_keywords_with_regex(self, query: str) -> dict[str, Any]:
         """使用正則表達式從查詢中提取旅館名稱和關鍵字"""
@@ -188,12 +207,4 @@ class KeywordParserAgent(BaseSubAgent):
             "議",
         ]
 
-        for indicator in keyword_indicators:
-            if indicator in query:
-                return True
-
-        return False
-
-
-# 創建旅館名稱/關鍵字解析子Agent實例
-keyword_parser_agent = KeywordParserAgent()
+        return any(indicator in query for indicator in keyword_indicators)

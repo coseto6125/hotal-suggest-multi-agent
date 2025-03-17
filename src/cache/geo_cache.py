@@ -3,7 +3,6 @@
 """
 
 import asyncio
-import os
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +45,13 @@ class GeoCache:
     async def initialize(self) -> None:
         """初始化快取資料"""
         async with self._lock:
+            # 加載模型
+            if not self._model:
+                logger.info("載入Sentence Transformer模型")
+                self._model = SentenceTransformer("distiluse-base-multilingual-cased-v2")
+            else:
+                logger.info("已載入Sentence Transformer模型，跳過")
+
             if self._initialized:
                 logger.debug("地理資料快取已初始化，跳過")
                 return
@@ -94,25 +100,16 @@ class GeoCache:
                 return False
 
             # 加載基本資料
-            async with aiofiles.open(self._counties_cache_path, "rb") as f:
-                content = await f.read()
-                self._counties = loads(content)
-
-            async with aiofiles.open(self._districts_cache_path, "rb") as f:
-                content = await f.read()
-                self._districts = loads(content)
-
-            async with aiofiles.open(self._county_names_cache_path, "rb") as f:
-                content = await f.read()
-                self._county_names = loads(content)
-
-            async with aiofiles.open(self._district_names_cache_path, "rb") as f:
-                content = await f.read()
-                self._district_names = loads(content)
-
-            # 加載模型
-            logger.info("載入Sentence Transformer模型")
-            self._model = SentenceTransformer("distiluse-base-multilingual-cased-v2")
+            tasks = (
+                self._fetch_data_from_cache(path, attribute)
+                for path, attribute in (
+                    (self._counties_cache_path, "_counties"),
+                    (self._districts_cache_path, "_districts"),
+                    (self._county_names_cache_path, "_county_names"),
+                    (self._district_names_cache_path, "_district_names"),
+                )
+            )
+            await asyncio.gather(*tasks)
 
             # 加載FAISS索引
             logger.info("從磁碟加載FAISS索引")
@@ -120,10 +117,10 @@ class GeoCache:
             self._district_index = faiss.read_index(str(self._district_index_cache_path))
 
             logger.info(f"從磁碟加載了 {len(self._counties)} 個縣市和 {len(self._districts)} 個鄉鎮區資料")
-            return True
         except Exception as e:
             logger.error(f"從磁碟加載快取失敗: {e}")
             return False
+        return True
 
     async def _save_cache_to_disk(self) -> None:
         """將快取資料保存到磁碟"""
@@ -132,17 +129,13 @@ class GeoCache:
             self._cache_dir.mkdir(parents=True, exist_ok=True)
 
             # 保存基本資料
-            async with aiofiles.open(self._counties_cache_path, "wb") as f:
-                await f.write(dumps(self._counties))
-
-            async with aiofiles.open(self._districts_cache_path, "wb") as f:
-                await f.write(dumps(self._districts))
-
-            async with aiofiles.open(self._county_names_cache_path, "wb") as f:
-                await f.write(dumps(self._county_names))
-
-            async with aiofiles.open(self._district_names_cache_path, "wb") as f:
-                await f.write(dumps(self._district_names))
+            tasks = (
+                self._store_data_in_cache(self._counties_cache_path, self._counties),
+                self._store_data_in_cache(self._districts_cache_path, self._districts),
+                self._store_data_in_cache(self._county_names_cache_path, self._county_names),
+                self._store_data_in_cache(self._district_names_cache_path, self._district_names),
+            )
+            await asyncio.gather(*tasks)
 
             # 保存FAISS索引
             if self._county_index and self._district_index:
@@ -291,7 +284,7 @@ class GeoCache:
         # 傳統方法：部分匹配
         for district in self._districts:
             district_name = district.get("name", "")
-            if name in district_name or district_name in name:
+            if any(name in part or part in name for part in district_name.split()):
                 return district
 
         return None
@@ -343,11 +336,19 @@ class GeoCache:
                     self._district_index_cache_path,
                 ]:
                     if cache_path.exists():
-                        os.remove(cache_path)
+                        cache_path.unlink()
 
                 logger.info("已清除地理資料快取")
             except Exception as e:
                 logger.error(f"清除磁碟快取失敗: {e}")
+
+    async def _fetch_data_from_cache(self, path, attribute):
+        async with aiofiles.open(path, "rb") as f:
+            setattr(self, attribute, loads(await f.read()))
+
+    async def _store_data_in_cache(self, path, attribute):
+        async with aiofiles.open(path, "wb") as f:
+            await f.write(dumps(getattr(self, attribute)))
 
 
 # 創建地理資料快取實例

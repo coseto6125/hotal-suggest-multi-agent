@@ -1,38 +1,47 @@
 """
-旅館搜索計劃子Agent，專門負責調用HotelAPIService.search_plans API
+旅館方案搜索 Agent 模塊
+
+負責搜索旅館訂購方案。
 """
 
-from typing import Any, list
+from typing import Any
 
 from loguru import logger
 
-from src.agents.base_sub_agent import BaseSubAgent
+from src.agents.base.base_agent import BaseAgent
 from src.api.services import hotel_api_service
 
 
-class HotelSearchPlanAgent(BaseSubAgent):
-    """旅館搜索計劃子Agent"""
+class HotelSearchPlanAgent(BaseAgent):
+    """旅館方案搜索Agent"""
 
     def __init__(self):
-        """初始化旅館搜索計劃子Agent"""
+        """初始化"""
         super().__init__("HotelSearchPlanAgent")
+        self.api_service = hotel_api_service
 
-    async def _process_query(self, query: str, context: dict[str, Any]) -> dict[str, Any]:
-        """處理查詢，調用HotelAPIService.search_plans API"""
-        logger.info(f"調用旅館搜索計劃API: {query}")
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """
+        處理旅館方案搜索請求
+        """
+        try:
+            # 檢查是否有必要的搜索參數
+            if not self._has_sufficient_search_conditions(state):
+                logger.warning("缺少必要的方案搜索參數，無法進行方案搜索")
+                return {
+                    "plan_search_results": [],
+                    "search_type": "none",
+                    "message": "缺少必要的方案搜索參數，無法進行方案搜索",
+                }
 
-        # TODO: 實現旅館搜索計劃API調用邏輯
-        # 從context中提取搜索參數
-        search_params = self._extract_search_params(context)
-
-        # 調用API
-        search_results = await self._search_plans(search_params)
-
-        return {"search_results": search_results}
+            # 處理搜索請求
+            return await self._search_plans(state)
+        except Exception as e:
+            logger.error(f"旅館方案搜索處理失敗: {e}")
+            return {"plan_search_results": [], "search_type": "error", "message": f"方案搜索處理失敗: {e!s}"}
 
     def _extract_search_params(self, context: dict[str, Any]) -> dict[str, Any]:
         """從context中提取搜索參數"""
-        # TODO: 實現從context中提取搜索參數的邏輯
         search_params = {}
 
         # 提取必要參數
@@ -78,35 +87,27 @@ class HotelSearchPlanAgent(BaseSubAgent):
             if parsed_data.get("hotel_type"):
                 search_params["hotel_group_types"] = parsed_data["hotel_type"]
 
+            # 提取關鍵字
+            if parsed_data.get("keywords"):
+                search_params["hotel_keyword"] = parsed_data["keywords"].get("hotel_keyword", "")
+                search_params["plan_keyword"] = parsed_data["keywords"].get("plan_keyword", "")
+
         return search_params
 
-    async def _search_plans(self, search_params: dict[str, Any]) -> list[dict[str, Any]]:
-        """調用HotelAPIService.search_plans API"""
-        # TODO: 實現調用HotelAPIService.search_plans API的邏輯
+    async def _search_plans(self, params: dict) -> list:
+        """
+        調用旅館搜索計劃API
+        參數:
+            params (dict): 搜索參數
+        """
         try:
-            # 調用API
-            search_results = await hotel_api_service.search_plans(
-                check_in=search_params.get("check_in"),
-                check_out=search_params.get("check_out"),
-                adults=search_params.get("adults", 2),
-                children=search_params.get("children", 0),
-                lowest_price=search_params.get("lowest_price"),
-                highest_price=search_params.get("highest_price"),
-                county_ids=search_params.get("county_ids", []),
-                district_ids=search_params.get("district_ids", []),
-                hotel_facility_ids=search_params.get("hotel_facility_ids", []),
-                room_types=search_params.get("room_types", []),
-                room_facility_ids=search_params.get("room_facility_ids", []),
-                has_breakfast=search_params.get("has_breakfast", False),
-                has_lunch=search_params.get("has_lunch", False),
-                has_dinner=search_params.get("has_dinner", False),
-                hotel_group_types=search_params.get("hotel_group_types"),
-            )
+            # 移除空參數
+            search_params = {k: v for k, v in params.items() if v}
 
-            logger.info(f"搜索到 {len(search_results)} 個旅館計劃")
-            return search_results
+            logger.info(f"搜索旅館計劃，參數: {search_params}")
+            return await self.api_service.search_plans(search_params)
         except Exception as e:
-            logger.error(f"調用旅館搜索計劃API失敗: {e!s}")
+            logger.error(f"調用旅館搜索計劃API失敗: {e}")
             return []
 
 

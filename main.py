@@ -41,7 +41,7 @@ def setup_logging():
     logging.root.setLevel(config.system.log_level)
 
     # 移除每個 uvicorn 日誌的默認處理程序
-    for name in logging.root.manager.loggerDict.keys():
+    for name in logging.root.manager.loggerDict:
         if name.startswith("uvicorn."):
             logging_logger = logging.getLogger(name)
             logging_logger.handlers = [InterceptHandler()]

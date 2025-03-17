@@ -116,6 +116,8 @@
             width: fit-content;
             color: var(--typing-dot-color);
             transition: background-color 0.3s ease, color 0.3s ease;
+            margin-right: auto;
+            border-bottom-left-radius: 5px;
         }
         .dot {
             display: inline-block;
@@ -142,12 +144,23 @@
             }
         }
         .system-message {
-            color: var(--system-msg-color);
+            text-align: center;
             margin: 10px 0;
-            font-style: italic;
-            text-align: left;
-            padding: 5px 10px;
-            transition: color 0.3s ease;
+            color: var(--system-msg-color);
+            font-size: 0.85rem;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .system-content {
+            display: inline-block;
+        }
+        .system-time {
+            font-size: 0.75rem;
+            color: var(--system-msg-color);
+            opacity: 0.8;
         }
         .message pre {
             white-space: pre-wrap;
@@ -193,6 +206,287 @@
         .theme-toggle:hover {
             color: var(--send-btn-color);
         }
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--typing-dot-color);
+            margin: 0 2px;
+            animation: typing 1.4s infinite both;
+        }
+        
+        /* 可摺疊內容樣式 */
+        .collapsible-message {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 10px;
+            width: 100%;
+            max-width: 100%;
+            margin-left: 0;
+            margin-right: auto;
+            text-align: left;
+            position: static;
+            display: block;
+            transform: none !important;
+            left: auto !important;
+            top: auto !important;
+        }
+        
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background-color: var(--assistant-msg-bg);
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            font-weight: 500;
+            position: static;
+            display: flex;
+            transform: none !important;
+            left: auto !important;
+            top: auto !important;
+            width: auto !important;
+        }
+        
+        .message-header:hover {
+            background-color: rgba(0,0,0,0.05);
+        }
+        
+        [data-theme="dark"] .message-header:hover {
+            background-color: rgba(255,255,255,0.1);
+        }
+        
+        .message-header .message-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .message-header .message-content i {
+            font-size: 1.1em;
+            color: var(--send-btn-color);
+        }
+        
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .toggle-btn {
+            padding: 4px 8px;
+            font-size: 14px;
+            background-color: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            color: var(--send-btn-color);
+        }
+        
+        .toggle-btn:hover {
+            background-color: rgba(0,0,0,0.08);
+            transform: scale(1.05);
+        }
+        
+        [data-theme="dark"] .toggle-btn:hover {
+            background-color: rgba(255,255,255,0.15);
+        }
+        
+        .collapsible-content {
+            padding: 15px;
+            background-color: var(--chat-bg);
+            transition: max-height 0.3s ease-out;
+            max-height: 2000px;
+            overflow: hidden;
+            position: static;
+            display: block;
+            transform: none !important;
+            left: auto !important;
+            top: auto !important;
+            width: auto !important;
+        }
+        
+        /* 底部關閉按鈕區域 */
+        .footer-controls {
+            display: flex;
+            justify-content: center;
+            padding: 10px;
+            border-top: 1px solid var(--border-color);
+            background-color: var(--assistant-msg-bg);
+            margin-top: 10px;
+        }
+        
+        .close-btn {
+            padding: 8px 15px;
+            background-color: var(--send-btn-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+        
+        .close-btn:hover {
+            background-color: var(--send-btn-hover);
+            transform: scale(1.05);
+        }
+        
+        .close-btn i {
+            font-size: 16px;
+        }
+        
+        /* 旅館卡片樣式 */
+        .hotels-container, .plans-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+            width: 100%;
+        }
+        
+        @media (max-width: 576px) {
+            .hotels-container, .plans-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .hotel-card, .plan-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: var(--chat-bg);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .hotel-card:hover, .plan-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        [data-theme="dark"] .hotel-card:hover, [data-theme="dark"] .plan-card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .hotel-header, .plan-header {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: var(--assistant-msg-bg);
+        }
+        
+        .hotel-name, .plan-name {
+            margin: 0;
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--assistant-msg-color);
+        }
+        
+        .hotel-rating, .plan-hotel {
+            font-size: 14px;
+            color: #666;
+            margin-top: 4px;
+        }
+        
+        .hotel-body, .plan-body {
+            display: flex;
+            padding: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .hotel-image, .plan-image {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            margin-right: 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .hotel-info, .plan-info {
+            flex: 1;
+            font-size: 14px;
+            min-width: 150px;
+        }
+        
+        .hotel-address, .hotel-location, .hotel-price, .hotel-phone, .hotel-checkin,
+        .plan-price, .plan-date, .plan-description {
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .hotel-address i, .hotel-location i, .hotel-price i, .hotel-phone i, .hotel-checkin i,
+        .plan-price i, .plan-date i {
+            margin-right: 8px;
+            width: 16px;
+            text-align: center;
+            color: #666;
+        }
+        
+        .hotel-intro, .plan-description {
+            padding: 12px 15px;
+            font-size: 14px;
+            border-top: 1px solid var(--border-color);
+            line-height: 1.5;
+        }
+        
+        .hotel-facilities {
+            padding: 12px 15px;
+            border-top: 1px solid var(--border-color);
+            font-size: 14px;
+        }
+        
+        .facilities-title {
+            font-weight: bold;
+            margin-right: 8px;
+            display: block;
+            margin-bottom: 8px;
+        }
+        
+        .facility-tag {
+            display: inline-block;
+            background-color: #f0f0f0;
+            padding: 3px 8px;
+            margin: 3px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #333;
+        }
+        
+        [data-theme="dark"] .facility-tag {
+            background-color: #444;
+            color: #ddd;
+        }
+        
+        .hotel-actions, .plan-actions {
+            padding: 12px 15px;
+            border-top: 1px solid var(--border-color);
+            text-align: right;
+        }
+        
+        .discount-badge {
+            display: inline-block;
+            background-color: #ff6b6b;
+            color: white;
+            padding: 2px 6px;
+            margin-left: 5px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        /* 動畫效果 */
     </style>
 </head>
 <body>
@@ -203,13 +497,13 @@
     <div class="container mt-4">
         <div class="chat-container">
             <h1 class="text-center mb-4">旅館推薦系統</h1>
-            <div class="chat-box" id="chatBox">
-                <div class="system-message">您好！請告訴我您想去哪裡旅遊、什麼時候出發、有幾位旅客？</div>
-            </div>
-            <div class="typing-indicator" id="typingIndicator">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
+            <input type="hidden" id="session_id" value="{{ session_id }}">
+            <div class="chat-box" id="chatContainer">
+                <div class="typing-indicator" id="typingIndicator">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                </div>
             </div>
             <div class="input-group">
                 <input type="text" class="form-control message-input" id="messageInput" placeholder="告訴我您的旅遊計劃，例如：我想下個月去花蓮玩兩天...">
@@ -224,11 +518,11 @@
 
     <script>
         // 全局變量
-        let conversationId = null;
+        let sessionId = null;
         let socket = null;
         
         // DOM元素
-        const chatBox = document.getElementById('chatBox');
+        const chatContainer = document.getElementById('chatContainer');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         const typingIndicator = document.getElementById('typingIndicator');
@@ -267,14 +561,18 @@
                 socket.close();
             }
             
+            // 獲取session_id
+            sessionId = document.getElementById('session_id').value || crypto.randomUUID();
+            
             // 創建新連接
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat/${conversationId || 'new'}`;
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat?session_id=${sessionId}`;
             socket = new WebSocket(wsUrl);
             
             // 連接打開時
             socket.onopen = function(e) {
                 console.log('WebSocket連接已建立');
+                // 歡迎消息會由服務器在連接建立後發送
             };
             
             // 接收消息時
@@ -282,8 +580,12 @@
                 const data = JSON.parse(event.data);
                 console.log('收到消息:', data);  // 調試用
                 
-                // 更新對話ID
-                conversationId = data.conversation_id;
+                // 處理新的session_id
+                if (data.type === "session_id" && data.data && data.data.session_id) {
+                    sessionId = data.data.session_id;
+                    console.log('新的對話ID已保存:', sessionId);
+                    return;
+                }
                 
                 // 處理錯誤消息
                 if (data.error) {
@@ -294,7 +596,190 @@
                     return;
                 }
                 
-                // 處理消息
+                // 用於檢查消息是否重複的變量
+                let messageAlreadyDisplayed = false;
+                let messageContent = '';
+                
+                // 處理聊天消息類型
+                if (data.type === "chat_message") {
+                    const message = data.data;
+                    
+                    // 處理流式回應
+                    if (message.role === "assistant_stream_start") {
+                        // 先檢查是否有舊的流式回應容器，如果有則移除其ID
+                        const oldStreamContainer = document.getElementById('stream-response-container');
+                        if (oldStreamContainer) {
+                            oldStreamContainer.id = '';
+                        }
+                        
+                        // 創建新的流式回應容器
+                        const newStreamContainer = document.createElement('div');
+                        newStreamContainer.id = 'stream-response-container';
+                        newStreamContainer.className = 'message assistant-message';
+                        
+                        // 創建內容容器
+                        const newContentDiv = document.createElement('div');
+                        newContentDiv.className = 'message-content';
+                        newContentDiv.id = 'stream-content';
+                        newContentDiv.innerHTML = '';
+                        
+                        // 創建時間顯示元素
+                        const newTimeDiv = document.createElement('div');
+                        newTimeDiv.className = 'message-time';
+                        newTimeDiv.textContent = getCurrentTime();
+                        
+                        // 添加內容和時間到消息元素
+                        newStreamContainer.appendChild(newContentDiv);
+                        newStreamContainer.appendChild(newTimeDiv);
+                        
+                        // 添加到聊天框
+                        chatContainer.appendChild(newStreamContainer);
+                        
+                        // 顯示打字指示器
+                        typingIndicator.style.display = 'block';
+                        
+                        // 滾動到底部
+                        scrollToBottom();
+                        
+                        return;
+                    }
+                    
+                    if (message.role === "assistant_stream") {
+                        // 獲取流式回應容器
+                        const streamContainer = document.getElementById('stream-response-container');
+                        const streamContent = document.getElementById('stream-content');
+                        
+                        // 隱藏打字指示器，因為已經開始接收回應
+                        typingIndicator.style.display = 'none';
+                        
+                        // 如果沒有流式回應容器，創建一個新的
+                        if (!streamContainer || !streamContent) {
+                            // 創建新的流式回應容器
+                            const newStreamContainer = document.createElement('div');
+                            newStreamContainer.id = 'stream-response-container';
+                            newStreamContainer.className = 'message assistant-message';
+                            
+                            // 創建內容容器
+                            const newContentDiv = document.createElement('div');
+                            newContentDiv.className = 'message-content';
+                            newContentDiv.id = 'stream-content';
+                            newContentDiv.innerHTML = formatMessage(message.content);
+                            
+                            // 創建時間顯示元素
+                            const newTimeDiv = document.createElement('div');
+                            newTimeDiv.className = 'message-time';
+                            newTimeDiv.textContent = getCurrentTime();
+                            
+                            // 添加內容和時間到消息元素
+                            newStreamContainer.appendChild(newContentDiv);
+                            newStreamContainer.appendChild(newTimeDiv);
+                            
+                            // 添加到聊天框
+                            chatContainer.appendChild(newStreamContainer);
+                        } else {
+                            // 添加新的內容
+                            const formattedContent = formatMessage(message.content);
+                            streamContent.innerHTML += formattedContent;
+                        }
+                        
+                        // 滾動到底部
+                        scrollToBottom();
+                        return;
+                    }
+                    
+                    if (message.role === "assistant_stream_end") {
+                        // 隱藏打字指示器
+                        typingIndicator.style.display = 'none';
+                        
+                        // 獲取流式回應容器
+                        const streamContainer = document.getElementById('stream-response-container');
+                        const streamContent = document.getElementById('stream-content');
+                        
+                        if (streamContainer && streamContent) {
+                            // 保存最終內容到最近消息列表，避免重複顯示
+                            const finalContent = streamContent.innerHTML;
+                            if (finalContent.trim()) {
+                                recentMessages.push(finalContent);
+                                if (recentMessages.length > MAX_RECENT_MESSAGES) {
+                                    recentMessages.shift();
+                                }
+                            }
+                            
+                            // 移除ID，但保留內容
+                            streamContainer.id = 'completed-stream-' + Date.now();
+                            streamContent.id = '';
+                        }
+                        
+                        // 滾動到底部
+                        scrollToBottom();
+                        return;
+                    }
+                    
+                    // 隱藏打字指示器
+                    typingIndicator.style.display = 'none';
+                    
+                    messageContent = message.content;
+                    
+                    // 檢查是否是最近添加的消息（避免重複）
+                    if (isRecentMessage(messageContent)) {
+                        console.log('忽略重複消息:', messageContent);
+                        return;
+                    }
+                    
+                    // 根據角色顯示消息
+                    if (message.role === "assistant") {
+                        // 檢查是否有旅館或方案資料
+                        if (message.hotels || message.plans) {
+                            // 先添加文本消息
+                            addMessage(message.content, 'assistant');
+                            
+                            // 如果有旅館資料，添加可摺疊的旅館資料
+                            if (message.hotels && message.hotels.length > 0) {
+                                addCollapsibleHotels(message.hotels);
+                            }
+                            
+                            // 如果有方案資料，添加可摺疊的方案資料
+                            if (message.plans && message.plans.length > 0) {
+                                addCollapsiblePlans(message.plans);
+                            }
+                        } else {
+                            // 普通助理消息
+                            addMessage(message.content, 'assistant');
+                        }
+                    } else if (message.role === "system") {
+                        // 系統消息
+                        addSystemMessage(message.content);
+                    }
+                    // 用戶消息已經在發送時添加，不需要再次添加
+                    
+                    return;
+                }
+                
+                // 處理 response 類型消息
+                if (data.type === "response") {
+                    // 隱藏打字指示器
+                    typingIndicator.style.display = 'none';
+                    
+                    const responseData = data.data;
+                    
+                    // 如果沒有通過chat_message發送過，則在這裡顯示
+                    if (responseData.response && responseData.response.message) {
+                        messageContent = responseData.response.message;
+                        
+                        // 檢查是否是最近添加的消息（避免重複）
+                        if (isRecentMessage(messageContent)) {
+                            console.log('忽略重複消息:', messageContent);
+                            return;
+                        }
+                        
+                        // 添加消息
+                        addMessage(messageContent, 'assistant');
+                    }
+                    
+                    return;
+                }
+                
+                // 處理漸進式回應
                 if (!data.is_complete) {
                     // 顯示打字指示器
                     typingIndicator.style.display = 'block';
@@ -350,10 +835,34 @@
             };
         }
         
-        // 獲取當前時間，格式為 HH:MM:SS
+        // 用於檢查消息是否最近已經顯示過
+        const recentMessages = [];
+        const MAX_RECENT_MESSAGES = 5;
+        
+        function isRecentMessage(content) {
+            return recentMessages.some(msg => {
+                // 移除HTML標籤進行比較
+                const plainMsg = msg.replace(/<[^>]*>/g, '');
+                const plainContent = content.replace(/<[^>]*>/g, '');
+                return plainMsg.trim() === plainContent.trim();
+            });
+        }
+        
+        // 獲取當前時間
         function getCurrentTime() {
             const now = new Date();
-            return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let hours = now.getHours();
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? '下午' : '上午';
+            hours = hours % 12;
+            hours = hours ? hours : 12; // 小時 '0' 應顯示為 '12'
+            return `${ampm} ${hours}:${minutes}:${seconds}`;
+        }
+        
+        // 滾動到底部
+        function scrollToBottom() {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
         
         // 添加消息到聊天框
@@ -383,19 +892,252 @@
             messageDiv.appendChild(timeDiv);
             
             // 添加到聊天框
-            chatBox.appendChild(messageDiv);
+            chatContainer.appendChild(messageDiv);
             
             // 滾動到底部
-            chatBox.scrollTop = chatBox.scrollHeight;
+            scrollToBottom();
         }
         
         // 添加系統消息
         function addSystemMessage(content) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'system-message';
-            messageDiv.textContent = content;
-            chatBox.appendChild(messageDiv);
-            chatBox.scrollTop = chatBox.scrollHeight;
+            
+            // 創建內容元素
+            const contentSpan = document.createElement('span');
+            contentSpan.className = 'system-content';
+            contentSpan.textContent = content;
+            
+            // 獲取當前時間
+            const currentTime = getCurrentTime();
+            
+            // 創建時間顯示元素
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'system-time';
+            timeSpan.textContent = currentTime;
+            
+            // 添加內容和時間到消息元素
+            messageDiv.appendChild(contentSpan);
+            messageDiv.appendChild(timeSpan);
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            
+            // 添加到最近消息列表
+            recentMessages.push(content);
+            if (recentMessages.length > 10) {
+                recentMessages.shift();
+            }
+        }
+        
+        // 添加可摺疊的旅館資料
+        function addCollapsibleHotels(hotels) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'collapsible-message';
+            messageDiv.style.display = 'block';
+            messageDiv.style.position = 'static';
+            
+            // 創建標題
+            const header = document.createElement('div');
+            header.className = 'message-header';
+            header.style.display = 'flex';
+            header.style.position = 'static';
+            header.innerHTML = `
+                <div class="message-content">
+                    <i class="bi bi-building"></i>
+                    <span>推薦飯店 (${hotels.length})</span>
+                </div>
+                <div class="header-controls">
+                    <button class="toggle-btn"><i class="bi bi-chevron-down"></i></button>
+                </div>
+            `;
+            
+            // 創建內容
+            const content = document.createElement('div');
+            content.className = 'collapsible-content';
+            content.style.maxHeight = "0px";
+            content.style.position = 'static';
+            content.style.display = 'block';
+            
+            // 添加飯店資訊
+            let hotelContent = '';
+            hotels.forEach(hotel => {
+                hotelContent += `
+                    <div class="hotel-card">
+                        <div class="hotel-header">
+                            <h5 class="hotel-name">${hotel.name}</h5>
+                            <div class="hotel-rating">${hotel.rating_text || ''}</div>
+                        </div>
+                        <div class="hotel-body">
+                            ${hotel.image_url ? `<img src="${hotel.image_url}" class="hotel-image" alt="${hotel.name}">` : ''}
+                            <div class="hotel-info">
+                                <div class="hotel-address"><i class="bi bi-geo-alt"></i> ${hotel.address}</div>
+                                ${hotel.location ? `<div class="hotel-location"><i class="bi bi-map"></i> ${hotel.location.county}${hotel.location.district}</div>` : ''}
+                                <div class="hotel-price"><i class="bi bi-currency-dollar"></i> ${hotel.price}</div>
+                                ${hotel.phone ? `<div class="hotel-phone"><i class="bi bi-telephone"></i> ${hotel.phone}</div>` : ''}
+                                <div class="hotel-checkin"><i class="bi bi-clock"></i> 入住: ${hotel.check_in || '未提供'} / 退房: ${hotel.check_out || '未提供'}</div>
+                            </div>
+                        </div>
+                        ${hotel.intro_summary ? `<div class="hotel-intro">${hotel.intro_summary}</div>` : ''}
+                        ${hotel.facilities && hotel.facilities.length > 0 ? 
+                            `<div class="hotel-facilities">
+                                <span class="facilities-title">設施:</span> 
+                                ${hotel.facilities.map(f => `<span class="facility-tag">${f}</span>`).join(' ')}
+                            </div>` : ''
+                        }
+                        ${hotel.url ? `<div class="hotel-actions"><a href="${hotel.url}" target="_blank" class="btn btn-sm btn-primary">查看詳情</a></div>` : ''}
+                    </div>
+                `;
+            });
+            
+            // 添加底部關閉按鈕
+            hotelContent += `
+                <div class="footer-controls">
+                    <button class="close-btn">
+                        <i class="bi bi-x-circle"></i> 關閉
+                    </button>
+                </div>
+            `;
+            
+            content.innerHTML = hotelContent;
+            
+            // 添加事件監聽器
+            header.addEventListener('click', function() {
+                toggleCollapsible(this);
+            });
+            
+            // 添加關閉按鈕事件監聽器
+            content.querySelector('.close-btn').addEventListener('click', function() {
+                toggleCollapsible(header);
+            });
+            
+            // 組合元素
+            messageDiv.appendChild(header);
+            messageDiv.appendChild(content);
+            
+            // 添加到聊天容器
+            chatContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+        
+        // 添加可摺疊的方案資料
+        function addCollapsiblePlans(plans) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'collapsible-message';
+            messageDiv.style.display = 'block';
+            messageDiv.style.position = 'static';
+            
+            // 創建標題
+            const header = document.createElement('div');
+            header.className = 'message-header';
+            header.style.display = 'flex';
+            header.style.position = 'static';
+            header.innerHTML = `
+                <div class="message-content">
+                    <i class="bi bi-calendar-event"></i>
+                    <span>推薦行程 (${plans.length})</span>
+                </div>
+                <div class="header-controls">
+                    <button class="toggle-btn"><i class="bi bi-chevron-down"></i></button>
+                </div>
+            `;
+            
+            // 創建內容
+            const content = document.createElement('div');
+            content.className = 'collapsible-content';
+            content.style.maxHeight = "0px";
+            content.style.position = 'static';
+            content.style.display = 'block';
+            
+            // 添加行程資訊
+            let planContent = '';
+            plans.forEach(plan => {
+                planContent += `
+                    <div class="plan-card">
+                        <div class="plan-header">
+                            <h5 class="plan-name">${plan.name}</h5>
+                            <div class="plan-hotel">${plan.hotel_name}</div>
+                        </div>
+                        <div class="plan-body">
+                            ${plan.image_url ? `<img src="${plan.image_url}" class="plan-image" alt="${plan.name}">` : ''}
+                            <div class="plan-info">
+                                <div class="plan-price">
+                                    <i class="bi bi-currency-dollar"></i> ${plan.price}
+                                    ${plan.discount_percent ? `<span class="discount-badge">${plan.discount_percent}</span>` : ''}
+                                </div>
+                                ${plan.date_range ? `<div class="plan-date"><i class="bi bi-calendar"></i> ${plan.date_range}</div>` : ''}
+                                ${plan.description_summary ? `<div class="plan-description">${plan.description_summary}</div>` : ''}
+                            </div>
+                        </div>
+                        ${plan.url ? `<div class="plan-actions"><a href="${plan.url}" target="_blank" class="btn btn-sm btn-primary">查看詳情</a></div>` : ''}
+                    </div>
+                `;
+            });
+            
+            // 添加底部關閉按鈕
+            planContent += `
+                <div class="footer-controls">
+                    <button class="close-btn">
+                        <i class="bi bi-x-circle"></i> 關閉
+                    </button>
+                </div>
+            `;
+            
+            content.innerHTML = planContent;
+            
+            // 添加事件監聽器
+            header.addEventListener('click', function() {
+                toggleCollapsible(this);
+            });
+            
+            // 添加關閉按鈕事件監聽器
+            content.querySelector('.close-btn').addEventListener('click', function() {
+                toggleCollapsible(header);
+            });
+            
+            // 組合元素
+            messageDiv.appendChild(header);
+            messageDiv.appendChild(content);
+            
+            // 添加到聊天容器
+            chatContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+        
+        // 切換可摺疊內容的顯示/隱藏
+        function toggleCollapsible(element) {
+            const content = element.nextElementSibling;
+            const toggleBtn = element.querySelector('.toggle-btn');
+            
+            if (content.style.maxHeight === "0px" || !content.style.maxHeight) {
+                content.style.maxHeight = content.scrollHeight + "px";
+                toggleBtn.innerHTML = '<i class="bi bi-chevron-up"></i>';
+                element.parentElement.style.marginBottom = "10px";
+            } else {
+                content.style.maxHeight = "0px";
+                toggleBtn.innerHTML = '<i class="bi bi-chevron-down"></i>';
+                element.parentElement.style.marginBottom = "10px";
+            }
+            
+            // 確保標題不會移動
+            element.style.position = "static";
+            element.style.transform = "none";
+            element.style.left = "auto";
+            element.style.top = "auto";
+            element.style.width = "auto";
+            
+            // 確保內容區域不會移動
+            content.style.position = "static";
+            content.style.transform = "none";
+            content.style.left = "auto";
+            content.style.top = "auto";
+            content.style.width = "auto";
+            
+            // 確保整個容器不會移動
+            element.parentElement.style.position = "static";
+            element.parentElement.style.transform = "none";
+            element.parentElement.style.left = "auto";
+            element.parentElement.style.top = "auto";
         }
         
         // 處理地理位置數據
@@ -526,21 +1268,28 @@
             }
         }
         
-        // 格式化消息（簡單的Markdown支持）
+        // 格式化消息，處理換行符和特殊字符
         function formatMessage(content) {
-            // 處理代碼塊
-            content = content.replace(/```([^`]+)```/g, '<pre>$1</pre>');
+            if (!content) return '';
             
-            // 處理粗體
-            content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            // 處理換行符
+            let formatted = content.replace(/\n/g, '<br>');
             
-            // 處理斜體
-            content = content.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            // 處理連續空格
+            formatted = formatted.replace(/ {2}/g, '&nbsp;&nbsp;');
             
-            // 處理換行
-            content = content.replace(/\n/g, '<br>');
+            // 處理特殊字符
+            formatted = formatted
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+                
+            // 恢復<br>標籤
+            formatted = formatted.replace(/&lt;br&gt;/g, '<br>');
             
-            return content;
+            return formatted;
         }
         
         // 發送消息
@@ -548,6 +1297,8 @@
             const message = messageInput.value.trim();
             
             if (!message) {
+                // 顯示提示消息給用戶
+                addSystemMessage("請輸入您的旅遊需求，例如：'我想在台北找間飯店，2大1小，預算3000以內'");
                 return;
             }
             
@@ -563,7 +1314,8 @@
             // 發送消息到服務器
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({
-                    message: message
+                    message: message,
+                    session_id: sessionId
                 }));
             } else {
                 // 如果WebSocket未連接，嘗試重新連接
@@ -573,7 +1325,8 @@
                 setTimeout(() => {
                     if (socket && socket.readyState === WebSocket.OPEN) {
                         socket.send(JSON.stringify({
-                            message: message
+                            message: message,
+                            session_id: sessionId
                         }));
                     } else {
                         addSystemMessage('無法連接到服務器，請刷新頁面重試。');
@@ -596,6 +1349,12 @@
         
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
+            // 從伺服器傳遞的模板變量獲取session_id
+            const serverSessionId = '{{ session_id }}';
+            if (serverSessionId && serverSessionId !== '{{ session_id }}') {
+                sessionId = serverSessionId;
+            }
+            
             initTheme();
             initWebSocket();
         });

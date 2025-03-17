@@ -128,7 +128,7 @@ class TestGuestParserAgent(unittest.TestCase):
                 self.assertEqual(result["adults"], case["expected_adults"])
                 self.assertEqual(result["children"], case["expected_children"])
 
-    def test_process_query(self):
+    def test_process(self):
         """測試 process_query 方法"""
         test_cases = [
             {"query": "2大1小", "expected_adults": 2, "expected_children": 1},
@@ -138,7 +138,7 @@ class TestGuestParserAgent(unittest.TestCase):
 
         for case in test_cases:
             with self.subTest(query=case["query"]):
-                result = asyncio.run(self.agent._process_query(case["query"], {}))
+                result = asyncio.run(self.agent._process(case["query"], {}))
                 self.assertEqual(result["guests"]["adults"], case["expected_adults"])
                 self.assertEqual(result["guests"]["children"], case["expected_children"])
 

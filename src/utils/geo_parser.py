@@ -66,7 +66,7 @@ class GeoParser:
         # 載入 spaCy 模型
         try:
             logger.info("載入 spaCy 中文模型")
-            self._nlp = get_shared_spacy_model("zh_core_web_sm")
+            self._nlp = get_shared_spacy_model("zh_core_web_md")
             logger.info("spaCy 中文模型載入成功")
             self._model_loaded = True
         except Exception as e:
