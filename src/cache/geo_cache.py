@@ -47,7 +47,7 @@ class GeoCache:
         async with self._lock:
             # 加載模型
             if not self._model:
-                logger.info("載入Sentence Transformer模型")
+                logger.info("載入 Sentence Transformer 模型用於解析縣市地區")
                 self._model = SentenceTransformer("distiluse-base-multilingual-cased-v2")
             else:
                 logger.info("已載入Sentence Transformer模型，跳過")

@@ -109,7 +109,7 @@ class GuestParserAgent(BaseAgent):
             # 嘗試獲取共享的spaCy模型
             self.nlp = get_shared_spacy_model("zh_core_web_md")
             self.spacy_available = True
-            logger.info("成功載入spaCy中文模型")
+            logger.info("成功載入spaCy中文模型用於人數解析")
 
             # 設置spaCy匹配器
             self.matcher = Matcher(self.nlp.vocab)

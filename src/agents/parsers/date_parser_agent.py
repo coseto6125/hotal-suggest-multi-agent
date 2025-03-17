@@ -4,15 +4,21 @@
 
 import re
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
+import spacy
 from loguru import logger
+from spacy.matcher import Matcher
 
 from src.agents.base.base_agent import BaseAgent
+from src.utils.nlp_utils import get_shared_spacy_model
 
 
 class DateParserAgent(BaseAgent):
     """日期解析子Agent"""
+
+    # 靜態共享的spaCy模型
+    _shared_nlp: ClassVar[spacy.Language | None] = None
 
     def __init__(self):
         """初始化日期解析子Agent"""
@@ -28,7 +34,70 @@ class DateParserAgent(BaseAgent):
             # 中文日期格式：X月X號
             re.compile(r"(\d{1,2})月(\d{1,2})號"),
         ]
-        self.err_result = {"error": "日期解析失敗", "err_msg": "不好意思，似乎我沒有找到您的入住日期，可以麻煩您再提供一次嗎？"}
+        self.err_result = {
+            "error": "日期解析失敗",
+            "err_msg": "不好意思，似乎無法確認您的入住日期，麻煩您加上月/日再提供一次。",
+        }
+
+        # 初始化spaCy模型
+        self.spacy_available = False
+        try:
+            # 嘗試獲取共享的spaCy模型
+            self.nlp = get_shared_spacy_model("zh_core_web_md")
+            self.spacy_available = True
+            logger.info("成功載入spaCy中文模型用於日期解析")
+
+            # 設置spaCy匹配器
+            self.matcher = Matcher(self.nlp.vocab)
+
+            # 添加日期匹配模式
+            self.matcher.add(
+                "DATE_PATTERN",
+                [
+                    # X月X日
+                    [
+                        {"LIKE_NUM": True},
+                        {"TEXT": "月"},
+                        {"LIKE_NUM": True},
+                        {"TEXT": {"IN": ["日", "號"]}},
+                    ],
+                    # X月X日至Y月Z日
+                    [
+                        {"LIKE_NUM": True},
+                        {"TEXT": "月"},
+                        {"LIKE_NUM": True},
+                        {"TEXT": {"IN": ["日", "號"]}},
+                        {"TEXT": {"IN": ["至", "到", "-", "~"]}},
+                        {"LIKE_NUM": True},
+                        {"TEXT": "月"},
+                        {"LIKE_NUM": True},
+                        {"TEXT": {"IN": ["日", "號"]}},
+                    ],
+                    # X日至Y日
+                    [
+                        {"LIKE_NUM": True},
+                        {"TEXT": {"IN": ["日", "號"]}},
+                        {"TEXT": {"IN": ["至", "到", "-", "~"]}},
+                        {"LIKE_NUM": True},
+                        {"TEXT": {"IN": ["日", "號"]}},
+                    ],
+                    # 今天/明天/後天
+                    [{"TEXT": {"IN": ["今天", "今晚", "明天", "後天", "大後天"]}}],
+                    # 這週末/下週末
+                    [{"TEXT": {"IN": ["這", "這個"]}}, {"TEXT": "週末"}],
+                    [{"TEXT": {"IN": ["下", "下個"]}}, {"TEXT": "週末"}],
+                    # 下週一/二/三...
+                    [
+                        {"TEXT": {"IN": ["下", "下個"]}},
+                        {"TEXT": {"IN": ["週", "星期"]}},
+                        {"TEXT": {"IN": ["一", "二", "三", "四", "五", "六", "日", "天"]}},
+                    ],
+                ],
+            )
+
+        except Exception as e:
+            logger.warning(f"無法載入spaCy中文模型用於日期解析: {e!s}，將使用正則表達式解析")
+            self.spacy_available = False
 
     async def process(self, state: dict[str, Any]) -> dict[str, Any]:
         """處理查詢中的旅遊日期"""
@@ -37,12 +106,27 @@ class DateParserAgent(BaseAgent):
 
         logger.debug(f"[{self.name}] 開始解析日期")
         try:
-            # 嘗試使用正則表達式解析日期
-            dates = self._extract_dates_with_regex(query)
+            # 首先嘗試使用spaCy解析日期
+            dates = {}
+            if self.spacy_available:
+                dates = self._extract_dates_with_spacy(query)
+                logger.debug(f"[{self.name}] spaCy解析結果: {dates}")
+
+            # 如果spaCy無法解析，嘗試使用正則表達式
+            if not dates.get("check_in") or not dates.get("check_out"):
+                regex_dates = self._extract_dates_with_regex(query)
+                logger.debug(f"[{self.name}] 正則表達式解析結果: {regex_dates}")
+
+                # 合併結果，優先使用已解析的結果
+                if not dates.get("check_in") and regex_dates.get("check_in"):
+                    dates["check_in"] = regex_dates["check_in"]
+                if not dates.get("check_out") and regex_dates.get("check_out"):
+                    dates["check_out"] = regex_dates["check_out"]
 
             # 如果仍然無法解析，嘗試根據上下文推斷
             if not dates.get("check_in") or not dates.get("check_out"):
                 inferred_dates = self._infer_dates(query)
+                logger.debug(f"[{self.name}] 推斷日期結果: {inferred_dates}")
 
                 # 合併結果，優先使用已解析的結果
                 if not dates.get("check_in") and inferred_dates.get("check_in"):
@@ -77,6 +161,166 @@ class DateParserAgent(BaseAgent):
             logger.error(f"[{self.name}] 日期解析失敗: {e}")
 
             return self.err_result
+
+    def _extract_dates_with_spacy(self, query: str) -> dict[str, str]:
+        """使用spaCy從查詢中提取日期"""
+        if not self.spacy_available:
+            return {"check_in": None, "check_out": None}
+
+        dates = {"check_in": None, "check_out": None}
+        all_dates = []
+        current_year = datetime.now().year
+        today = datetime.now()
+
+        # 解析文本
+        doc = self.nlp(query)
+
+        # 首先檢查是否有DATE實體
+        for ent in doc.ents:
+            if ent.label_ == "DATE":
+                logger.debug(f"spaCy識別到DATE實體: {ent.text}")
+                # 嘗試解析日期實體
+                date_str = self._parse_date_entity(ent.text, current_year, today)
+                if date_str:
+                    all_dates.append(date_str)
+
+        # 使用匹配器查找匹配項
+        matches = self.matcher(doc)
+        for match_id, start, end in matches:
+            match_text = doc[start:end].text
+            logger.debug(f"spaCy匹配到日期表達: {match_text}")
+
+            # 解析匹配到的日期表達
+            if "至" in match_text or "到" in match_text or "-" in match_text or "~" in match_text:
+                # 處理範圍日期，如"5月1日至5月3日"
+                date_range = self._parse_date_range(match_text, current_year)
+                if date_range and len(date_range) == 2:
+                    dates["check_in"] = date_range[0]
+                    dates["check_out"] = date_range[1]
+                    return dates
+            elif "月" in match_text and ("日" in match_text or "號" in match_text):
+                # 處理單個日期，如"5月1日"
+                date_str = self._parse_single_date(match_text, current_year)
+                if date_str:
+                    all_dates.append(date_str)
+            elif match_text in ["今天", "今晚"]:
+                all_dates.append(today.strftime("%Y-%m-%d"))
+            elif match_text == "明天":
+                all_dates.append((today + timedelta(days=1)).strftime("%Y-%m-%d"))
+            elif match_text == "後天":
+                all_dates.append((today + timedelta(days=2)).strftime("%Y-%m-%d"))
+            elif match_text == "大後天":
+                all_dates.append((today + timedelta(days=3)).strftime("%Y-%m-%d"))
+            elif "週末" in match_text:
+                # 計算到週末的天數
+                if "這" in match_text or "這個" in match_text:
+                    # 這週末
+                    days_until_saturday = (5 - today.weekday()) % 7
+                    saturday = today + timedelta(days=days_until_saturday)
+                    sunday = saturday + timedelta(days=1)
+                    all_dates.append(saturday.strftime("%Y-%m-%d"))
+                    all_dates.append(sunday.strftime("%Y-%m-%d"))
+                elif "下" in match_text or "下個" in match_text:
+                    # 下週末
+                    days_until_next_saturday = (5 - today.weekday()) % 7 + 7
+                    next_saturday = today + timedelta(days=days_until_next_saturday)
+                    next_sunday = next_saturday + timedelta(days=1)
+                    all_dates.append(next_saturday.strftime("%Y-%m-%d"))
+                    all_dates.append(next_sunday.strftime("%Y-%m-%d"))
+            elif "下週" in match_text or "下星期" in match_text:
+                # 處理"下週X"
+                weekday_map = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
+                for day, offset in weekday_map.items():
+                    if day in match_text:
+                        days_until_next_monday = (7 - today.weekday()) % 7
+                        if days_until_next_monday == 0:  # 如果今天是週一
+                            days_until_next_monday = 7
+                        next_day = today + timedelta(days=days_until_next_monday + offset)
+                        all_dates.append(next_day.strftime("%Y-%m-%d"))
+                        break
+
+        # 如果找到至少兩個日期，假設第一個是入住日期，第二個是退房日期
+        if len(all_dates) >= 2:
+            # 排序日期，確保入住日期在前
+            all_dates.sort()
+            dates["check_in"] = all_dates[0]
+            dates["check_out"] = all_dates[1]
+        elif len(all_dates) == 1:
+            # 如果只找到一個日期，假設是入住日期，退房日期為入住日期後的第二天
+            dates["check_in"] = all_dates[0]
+            check_in_date = datetime.strptime(all_dates[0], "%Y-%m-%d")
+            check_out_date = check_in_date + timedelta(days=1)
+            dates["check_out"] = check_out_date.strftime("%Y-%m-%d")
+
+        return dates
+
+    def _parse_date_entity(self, text: str, current_year: int, today: datetime) -> str | None:
+        """解析日期實體文本"""
+        try:
+            # 處理常見的日期表達
+            if text in ["今天", "今日", "今晚"]:
+                return today.strftime("%Y-%m-%d")
+            if text in ["明天", "明日"]:
+                return (today + timedelta(days=1)).strftime("%Y-%m-%d")
+            if text in ["後天", "後日"]:
+                return (today + timedelta(days=2)).strftime("%Y-%m-%d")
+            if text == "大後天":
+                return (today + timedelta(days=3)).strftime("%Y-%m-%d")
+
+            # 處理"X月X日"格式
+            month_day_pattern = re.compile(r"(\d{1,2})月(\d{1,2})(?:日|號)")
+            match = month_day_pattern.search(text)
+            if match:
+                month, day = int(match.group(1)), int(match.group(2))
+                return f"{current_year:04d}-{month:02d}-{day:02d}"
+
+            return None
+        except (ValueError, IndexError):
+            return None
+
+    def _parse_date_range(self, text: str, current_year: int) -> list[str] | None:
+        """解析日期範圍表達，如"5月1日至5月3日"或"5月1日至3日" """
+        try:
+            # 處理"X月X日至Y月Z日"格式
+            full_range_pattern = re.compile(r"(\d{1,2})月(\d{1,2})(?:日|號)(?:至|到|-|~)(\d{1,2})月(\d{1,2})(?:日|號)")
+            match = full_range_pattern.search(text)
+            if match:
+                month1, day1, month2, day2 = (
+                    int(match.group(1)),
+                    int(match.group(2)),
+                    int(match.group(3)),
+                    int(match.group(4)),
+                )
+                date1 = f"{current_year:04d}-{month1:02d}-{day1:02d}"
+                date2 = f"{current_year:04d}-{month2:02d}-{day2:02d}"
+                return [date1, date2]
+
+            # 處理"X月X日至Z日"格式（同月不同日）
+            same_month_pattern = re.compile(r"(\d{1,2})月(\d{1,2})(?:日|號)(?:至|到|-|~)(\d{1,2})(?:日|號)")
+            match = same_month_pattern.search(text)
+            if match:
+                month, day1, day2 = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                date1 = f"{current_year:04d}-{month:02d}-{day1:02d}"
+                date2 = f"{current_year:04d}-{month:02d}-{day2:02d}"
+                return [date1, date2]
+
+            return None
+        except (ValueError, IndexError):
+            return None
+
+    def _parse_single_date(self, text: str, current_year: int) -> str | None:
+        """解析單個日期表達，如"5月1日" """
+        try:
+            # 處理"X月X日"格式
+            pattern = re.compile(r"(\d{1,2})月(\d{1,2})(?:日|號)")
+            match = pattern.search(text)
+            if match:
+                month, day = int(match.group(1)), int(match.group(2))
+                return f"{current_year:04d}-{month:02d}-{day:02d}"
+
+            return None
+        except (ValueError, IndexError):
+            return None
 
     def _extract_dates_with_regex(self, query: str) -> dict[str, str]:
         """使用正則表達式從查詢中提取日期"""
