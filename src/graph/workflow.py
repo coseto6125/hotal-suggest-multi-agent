@@ -34,8 +34,8 @@ class HotelRecommendationState(TypedDict, total=False):
     timestamp: Annotated[str, MergeFunc.keep_not_none]  # 查詢時間戳
 
     # 旅館搜索參數
-    check_in: Annotated[str, MergeFunc.keep_last]  # 入住日期
-    check_out: Annotated[str, MergeFunc.keep_last]  # 退房日期
+    check_in: Annotated[str, MergeFunc.keep_not_none]  # 入住日期
+    check_out: Annotated[str, MergeFunc.keep_not_none]  # 退房日期
     lowest_price: Annotated[int, MergeFunc.min_int]  # 最低價格
     highest_price: Annotated[int, MergeFunc.max_int]  # 最高價格
     adults: Annotated[int, MergeFunc.max_int]  # 成人人數
