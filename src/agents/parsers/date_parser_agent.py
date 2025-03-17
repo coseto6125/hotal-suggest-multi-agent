@@ -186,58 +186,52 @@ class DateParserAgent(BaseAgent):
 
         # 使用匹配器查找匹配項
         matches = self.matcher(doc)
-        for match_id, start, end in matches:
-            match_text = doc[start:end].text
-            logger.debug(f"spaCy匹配到日期表達: {match_text}")
+        today_str = today.strftime("%Y-%m-%d")
 
-            # 解析匹配到的日期表達
-            if "至" in match_text or "到" in match_text or "-" in match_text or "~" in match_text:
-                # 處理範圍日期，如"5月1日至5月3日"
-                date_range = self._parse_date_range(match_text, current_year)
-                if date_range and len(date_range) == 2:
-                    dates["check_in"] = date_range[0]
-                    dates["check_out"] = date_range[1]
-                    return dates
-            elif "月" in match_text and ("日" in match_text or "號" in match_text):
-                # 處理單個日期，如"5月1日"
-                date_str = self._parse_single_date(match_text, current_year)
-                if date_str:
-                    all_dates.append(date_str)
-            elif match_text in ["今天", "今晚"]:
-                all_dates.append(today.strftime("%Y-%m-%d"))
-            elif match_text == "明天":
-                all_dates.append((today + timedelta(days=1)).strftime("%Y-%m-%d"))
-            elif match_text == "後天":
-                all_dates.append((today + timedelta(days=2)).strftime("%Y-%m-%d"))
-            elif match_text == "大後天":
-                all_dates.append((today + timedelta(days=3)).strftime("%Y-%m-%d"))
-            elif "週末" in match_text:
-                # 計算到週末的天數
-                if "這" in match_text or "這個" in match_text:
-                    # 這週末
-                    days_until_saturday = (5 - today.weekday()) % 7
-                    saturday = today + timedelta(days=days_until_saturday)
-                    sunday = saturday + timedelta(days=1)
-                    all_dates.append(saturday.strftime("%Y-%m-%d"))
-                    all_dates.append(sunday.strftime("%Y-%m-%d"))
-                elif "下" in match_text or "下個" in match_text:
-                    # 下週末
-                    days_until_next_saturday = (5 - today.weekday()) % 7 + 7
-                    next_saturday = today + timedelta(days=days_until_next_saturday)
-                    next_sunday = next_saturday + timedelta(days=1)
-                    all_dates.append(next_saturday.strftime("%Y-%m-%d"))
-                    all_dates.append(next_sunday.strftime("%Y-%m-%d"))
-            elif "下週" in match_text or "下星期" in match_text:
-                # 處理"下週X"
-                weekday_map = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
-                for day, offset in weekday_map.items():
-                    if day in match_text:
-                        days_until_next_monday = (7 - today.weekday()) % 7
-                        if days_until_next_monday == 0:  # 如果今天是週一
-                            days_until_next_monday = 7
-                        next_day = today + timedelta(days=days_until_next_monday + offset)
-                        all_dates.append(next_day.strftime("%Y-%m-%d"))
-                        break
+        for _, start, end in matches:
+            text = doc[start:end].text
+            logger.debug(f"spaCy匹配到日期表達: {text}")
+            
+            match text:
+                case t if any(m in t for m in "至到-~"):
+                    date_range = self._parse_date_range(text, current_year)
+                    if date_range and len(date_range) == 2:
+                        dates["check_in"], dates["check_out"] = date_range
+                        return dates
+                
+                case t if "月" in t and ("日" in t or "號" in t):
+                    if date_str := self._parse_single_date(text, current_year):
+                        all_dates.append(date_str)
+                
+                case "今天" | "今晚":
+                    all_dates.append(today_str)
+                
+                case "明天":
+                    all_dates.append((today + timedelta(days=1)).strftime("%Y-%m-%d"))
+                
+                case "後天":
+                    all_dates.append((today + timedelta(days=2)).strftime("%Y-%m-%d"))
+                
+                case "大後天":
+                    all_dates.append((today + timedelta(days=3)).strftime("%Y-%m-%d"))
+                
+                case t if "週末" in t or "周末" in t:
+                    is_next = "下" in t or "下個" in t
+                    offset = 7 if is_next else 0
+                    days_to_sat = (5 - today.weekday()) % 7 + offset
+                    sat = today + timedelta(days=days_to_sat)
+                    all_dates.extend([
+                        sat.strftime("%Y-%m-%d"),
+                        (sat + timedelta(days=1)).strftime("%Y-%m-%d")
+                    ])
+                
+                case t if any(m in t for m in ["下週", "下星期", "下周"]):
+                    for day, offset in {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}.items():
+                        if day in t:
+                            days_to_mon = (7 - today.weekday()) % 7 or 7
+                            next_day = today + timedelta(days=days_to_mon + offset)
+                            all_dates.append(next_day.strftime("%Y-%m-%d"))
+                            break
 
         # 如果找到至少兩個日期，假設第一個是入住日期，第二個是退房日期
         if len(all_dates) >= 2:
@@ -342,7 +336,7 @@ class DateParserAgent(BaseAgent):
                         date_str = f"{current_year:04d}-{month:02d}-{day:02d}"
 
                     # 驗證日期有效性
-                    datetime.strptime(date_str, "%Y-%m-%d%z")
+                    datetime.strptime(date_str, "%Y-%m-%d")
                     all_dates.append(date_str)
                 except (ValueError, IndexError):
                     continue
@@ -356,7 +350,7 @@ class DateParserAgent(BaseAgent):
         elif len(all_dates) == 1:
             # 如果只找到一個日期，假設是入住日期，退房日期為入住日期後的第二天
             dates["check_in"] = all_dates[0]
-            check_in_date = datetime.strptime(all_dates[0], "%Y-%m-%d%z")
+            check_in_date = datetime.strptime(all_dates[0], "%Y-%m-%d")
             check_out_date = check_in_date + timedelta(days=1)
             dates["check_out"] = check_out_date.strftime("%Y-%m-%d")
 
