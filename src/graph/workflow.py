@@ -138,6 +138,12 @@ class HotelRecommendationWorkflow:
 
     def _init_generator_agents(self):
         """初始化生成agents"""
+        # 載入LLM Agent
+        from src.agents.generators.llm_agent import llm_agent
+
+        self.llm_agent = llm_agent
+
+        # 初始化回應生成器和旅館推薦器
         self.response_generator = ResponseGeneratorAgent()
         self.hotel_recommendation = HotelRecommendationAgent()
 
@@ -228,6 +234,10 @@ class HotelRecommendationWorkflow:
 
     def _add_generator_nodes(self, builder: StateGraph):
         """添加生成相關節點"""
+        # 添加LLM Agent節點
+        builder.add_node("llm_agent", self._node_wrapper(self.llm_agent.process))
+
+        # 添加回應生成器和旅館推薦節點
         builder.add_node("response_generator", self._node_wrapper(self.response_generator.process))
         builder.add_node("hotel_recommendation", self._node_wrapper(self.hotel_recommendation.process))
 
@@ -300,8 +310,11 @@ class HotelRecommendationWorkflow:
 
     def _setup_generator_edges(self, builder: StateGraph):
         """設置生成階段的邊和條件"""
-        # 將結果匯總節點連接到回應生成
-        builder.add_edge("search_results_aggregator", "response_generator")
+        # 將結果匯總節點連接到LLM Agent
+        builder.add_edge("search_results_aggregator", "llm_agent")
+
+        # 將LLM Agent連接到回應生成器
+        builder.add_edge("llm_agent", "response_generator")
 
         # 將response_generator連接到hotel_recommendation
         builder.add_edge("response_generator", "hotel_recommendation")

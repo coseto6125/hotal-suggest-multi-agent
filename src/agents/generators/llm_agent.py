@@ -1,5 +1,5 @@
 """
-LLM 服務，用於與語言模型進行交互
+LLM Agent，用於與語言模型進行交互
 """
 
 import re
@@ -11,16 +11,18 @@ from langchain_openai import ChatOpenAI
 from loguru import logger
 from orjson import loads
 
+from src.agents.base.base_agent import BaseAgent
 from src.cache.geo_cache import geo_cache
 from src.config import config
 from src.utils.geo_parser import geo_parser
 
 
-class LLMService:
-    """LLM 服務"""
+class LLMAgent(BaseAgent):
+    """LLM Agent - 負責與語言模型進行交互"""
 
     def __init__(self):
-        """初始化LLM服務"""
+        """初始化LLM Agent"""
+        super().__init__("LLMAgent")
         self.provider = config.llm.provider
 
         if self.provider == "openai":
@@ -34,11 +36,32 @@ class LLMService:
         else:
             raise ValueError(f"不支持的LLM提供商: {self.provider}")
 
-        logger.info(f"初始化LLM服務，提供商: {self.provider}")
+        logger.info(f"初始化LLM Agent，提供商: {self.provider}")
+
+    async def process(self, state: dict[str, Any]) -> dict[str, Any]:
+        """處理LLM相關請求的方法"""
+        # 檢查請求類型並相應處理
+        request_type = state.get("llm_request_type", "")
+
+        if request_type == "generate_response":
+            messages = state.get("messages", [])
+            system_prompt = state.get("system_prompt")
+            response = await self.generate_response(messages, system_prompt)
+            return {**state, "response": response}
+
+        if request_type == "parse_user_query":
+            query = state.get("query", "")
+            geo_entities = state.get("geo_entities")
+            parsed_query = await self.parse_user_query(query, geo_entities)
+            return {**state, "parsed_query": parsed_query}
+
+        # 其他請求類型可以在這裡添加...
+
+        # 如果沒有特定的請求類型或不需要處理，返回原始狀態
+        return state
 
     async def generate_response(self, messages: list[dict[str, str]], system_prompt: str | None = None) -> str:
         """生成回應"""
-        # TODO: 實現生成回應的邏輯
         langchain_messages = []
 
         if system_prompt:
@@ -55,7 +78,6 @@ class LLMService:
 
     async def stream_response(self, messages: list[dict[str, str]], system_prompt: str | None = None):
         """流式生成回應"""
-        # TODO: 實現流式生成回應的邏輯
         langchain_messages = []
 
         if system_prompt:
@@ -84,7 +106,7 @@ class LLMService:
         # 如果沒有提供已解析的地理實體，則進行解析
         if geo_entities is None:
             geo_entities = await geo_parser.parse_geo_entities(query)
-            logger.debug("在 LLMService.parse_user_query 中解析地理實體")
+            logger.debug("在 LLMAgent.parse_user_query 中解析地理實體")
 
         # 獲取 spaCy 識別的縣市和鄉鎮區名稱
         counties_str = ", ".join([county.get("name", "") for county in geo_entities.get("counties", [])])
@@ -210,5 +232,5 @@ class LLMService:
         parsed_query["destination"] = destination
 
 
-# 創建LLM服務實例
-llm_service = LLMService()
+# 創建LLM Agent實例
+llm_agent = LLMAgent()

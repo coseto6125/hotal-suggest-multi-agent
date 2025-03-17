@@ -8,7 +8,6 @@ from typing import Any
 from loguru import logger
 
 from src.agents.base.base_agent import BaseAgent
-from src.services.llm_service import llm_service
 
 
 class KeywordParserAgent(BaseAgent):

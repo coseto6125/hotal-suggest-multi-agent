@@ -8,6 +8,7 @@ from typing import Any
 from loguru import logger
 
 from src.agents.base.base_agent import BaseAgent
+from src.agents.generators.llm_agent import llm_agent
 from src.web.websocket import ws_manager
 
 
@@ -177,16 +178,19 @@ class HotelRecommendationAgent(BaseAgent):
             # 準備消息列表
             messages = [{"role": "user", "content": llm_input}]
 
-            # 呼叫LLM服務
-            from src.services.llm_service import llm_service
+            # 設置請求狀態
+            llm_request = {
+                "llm_request_type": "generate_response",
+                "messages": messages,
+                "system_prompt": system_prompt,
+            }
 
-            response_chunks = []
-            async for chunk in llm_service.stream_response(messages, system_prompt):
-                response_chunks.append(chunk)
+            # 呼叫LLM Agent
+            response_state = await llm_agent.process(llm_request)
+            response = response_state.get("response", "")
 
-            complete_response = "".join(response_chunks)
-            self.logger.info(f"旅館推薦生成完成，回應長度: {len(complete_response)}")
-            return complete_response
+            self.logger.info(f"旅館推薦生成完成，回應長度: {len(response)}")
+            return response
 
         except Exception as e:
             self.logger.error(f"生成旅館推薦時發生錯誤: {e}")
@@ -218,9 +222,6 @@ class HotelRecommendationAgent(BaseAgent):
             # 準備消息列表
             messages = [{"role": "user", "content": llm_input}]
 
-            # 呼叫LLM服務
-            from src.services.llm_service import llm_service
-
             # 發送開始標記
             await ws_manager.broadcast_chat_message(
                 conversation_id,
@@ -239,7 +240,7 @@ class HotelRecommendationAgent(BaseAgent):
             think_buffer = ""
 
             # 直接流式處理LLM回應
-            async for chunk in llm_service.stream_response(messages, system_prompt):
+            async for chunk in llm_agent.stream_response(messages, system_prompt):
                 # 檢查是否包含思考標籤
                 if "<think>" in chunk:
                     # 分割 chunk，只保留 <think> 之前的部分

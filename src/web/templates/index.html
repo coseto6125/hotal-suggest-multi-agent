@@ -870,9 +870,13 @@
         // 獲取當前時間
         function getCurrentTime() {
             const now = new Date();
-            const hours = now.getHours().toString().padStart(2, '0');
+            let hours = now.getHours();
+            const ampm = hours >= 12 ? '下午' : '上午';
+            hours = hours % 12;
+            hours = hours ? hours : 12; // 如果小時為0，則顯示12
             const minutes = now.getMinutes().toString().padStart(2, '0');
-            return `${hours}:${minutes}`;
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            return `${ampm} ${hours}:${minutes}:${seconds}`;
         }
         
         // 滾動到底部

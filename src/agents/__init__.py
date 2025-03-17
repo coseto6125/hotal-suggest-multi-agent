@@ -1,5 +1,7 @@
 """
-Agent 模組
+初始化agents模組
 """
 
-# 空的 __init__.py 文件，避免循環導入問題
+from src.agents.generators.llm_agent import LLMAgent, llm_agent
+
+__all__ = ["LLMAgent", "llm_agent"]

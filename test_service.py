@@ -12,7 +12,6 @@ from loguru import logger
 from src.agents.generators.hotel_recommendation_agent import hotel_recommendation_agent
 from src.cache.geo_cache import geo_cache
 from src.graph.workflow import run_workflow
-from src.services.llm_service import llm_service
 
 
 async def test_workflow():

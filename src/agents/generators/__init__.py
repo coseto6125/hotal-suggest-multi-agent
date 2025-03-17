@@ -1,7 +1,16 @@
 """
-生成類 Agent 模組
+初始化generators模組
 """
 
-from .response_generator_agent import ResponseGeneratorAgent
+from src.agents.generators.hotel_recommendation_agent import HotelRecommendationAgent, hotel_recommendation_agent
+from src.agents.generators.llm_agent import LLMAgent, llm_agent
+from src.agents.generators.response_generator_agent import ResponseGeneratorAgent, response_generator_agent
 
-__all__ = ["ResponseGeneratorAgent"]
+__all__ = [
+    "HotelRecommendationAgent",
+    "LLMAgent",
+    "ResponseGeneratorAgent",
+    "hotel_recommendation_agent",
+    "llm_agent",
+    "response_generator_agent",
+]

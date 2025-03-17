@@ -16,10 +16,6 @@ class BaseAgent(ABC):
     def __init__(self, name: str):
         """初始化基礎Agent"""
         self.name = name
-        # 延遲導入 llm_service
-        from src.services.llm_service import llm_service
-
-        self.llm_service = llm_service
         logger.info(f"初始化Agent: {name}")
 
     @abstractmethod
@@ -46,11 +42,22 @@ class BaseAgent(ABC):
             LLM提取的結果
         """
         try:
+            # 延遲導入 llm_agent 避免循環引用
+            from src.agents.generators.llm_agent import llm_agent
+
             # 構建消息
             messages = [{"role": "user", "content": prompt}]
 
-            # 調用LLM服務
-            response = await self.llm_service.generate_response(messages, system_prompt)
+            # 設置請求狀態
+            llm_request = {
+                "llm_request_type": "generate_response",
+                "messages": messages,
+                "system_prompt": system_prompt,
+            }
+
+            # 調用LLM Agent
+            response_state = await llm_agent.process(llm_request)
+            response = response_state.get("response", "")
 
             # 嘗試解析JSON響應
             try:
