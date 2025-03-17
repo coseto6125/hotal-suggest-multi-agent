@@ -486,7 +486,92 @@
             font-size: 12px;
         }
         
+        /* POI 地圖圖片樣式 */
+        .poi-maps-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+            width: 100%;
+        }
+        
+        @media (max-width: 576px) {
+            .poi-maps-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .poi-map-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: var(--chat-bg);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-bottom: 15px;
+        }
+        
+        .poi-map-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        [data-theme="dark"] .poi-map-card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .poi-map-header {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: var(--assistant-msg-bg);
+        }
+        
+        .poi-map-title {
+            margin: 0;
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--assistant-msg-color);
+        }
+        
+        .poi-map-image {
+            width: 100%;
+            height: auto;
+            object-fit: cover;
+            display: block;
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+        }
+        
+        .poi-map-image:hover {
+            opacity: 0.9;
+        }
+        
+        /* 圖片模態框樣式 */
+        #imageModal {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        #imageModal.show {
+            opacity: 1;
+        }
+        
+        /* 暗黑模式下的模態框樣式 */
+        [data-theme="dark"] #imageModal button {
+            background-color: #0d6efd;
+        }
+        
+        [data-theme="dark"] #imageModal button:hover {
+            background-color: #0b5ed7;
+        }
+        
         /* 動畫效果 */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease forwards;
+        }
     </style>
 </head>
 <body>
@@ -600,9 +685,59 @@
                 let messageAlreadyDisplayed = false;
                 let messageContent = '';
                 
+                // 檢查是否有周邊地標地圖圖片
+                if (data.surroundings_map_images && data.surroundings_map_images.length > 0) {
+                    console.log('收到周邊地標地圖圖片:', data.surroundings_map_images);
+                    addPOIMapImages(data.surroundings_map_images, "旅館周邊地標地圖");
+                }
+                
+                // 處理 POI 圖片類型消息
+                if (data.type === "poi_images" || data.content_type === "poi_images") {
+                    console.log('收到 POI 圖片消息:', data);
+                    // 隱藏打字指示器
+                    typingIndicator.style.display = 'none';
+                    
+                    // 添加 POI 地圖圖片
+                    if (data.images && data.images.length > 0) {
+                        addPOIMapImages(data.images, data.content || "旅館周邊地標地圖");
+                    } else if (data.data && data.data.images && data.data.images.length > 0) {
+                        // 嘗試從 data.data 中獲取圖片
+                        addPOIMapImages(data.data.images, data.data.content || "旅館周邊地標地圖");
+                    } else if (data.surroundings_map_images && data.surroundings_map_images.length > 0) {
+                        // 嘗試從 surroundings_map_images 中獲取圖片
+                        addPOIMapImages(data.surroundings_map_images, "旅館周邊地標地圖");
+                    } else {
+                        console.warn('POI 圖片消息中沒有找到圖片數據');
+                    }
+                    return;
+                }
+                
                 // 處理聊天消息類型
                 if (data.type === "chat_message") {
                     const message = data.data;
+                    
+                    // 檢查消息中是否有周邊地標地圖圖片
+                    if (message.surroundings_map_images && message.surroundings_map_images.length > 0) {
+                        console.log('聊天消息中包含周邊地標地圖圖片:', message.surroundings_map_images);
+                        addPOIMapImages(message.surroundings_map_images, "旅館周邊地標地圖");
+                    }
+                    
+                    // 檢查是否是 POI 圖片消息
+                    if (message.content_type === "poi_images" || message.role === "poi_images") {
+                        console.log('收到聊天消息中的 POI 圖片:', message);
+                        // 隱藏打字指示器
+                        typingIndicator.style.display = 'none';
+                        
+                        // 添加 POI 地圖圖片
+                        if (message.images && message.images.length > 0) {
+                            addPOIMapImages(message.images, message.content || "旅館周邊地標地圖");
+                        } else if (message.surroundings_map_images && message.surroundings_map_images.length > 0) {
+                            addPOIMapImages(message.surroundings_map_images, "旅館周邊地標地圖");
+                        } else {
+                            console.warn('聊天消息中的 POI 圖片數據不完整');
+                        }
+                        return;
+                    }
                     
                     // 處理流式回應
                     if (message.role === "assistant_stream_start") {
@@ -742,6 +877,11 @@
                             if (message.plans && message.plans.length > 0) {
                                 addCollapsiblePlans(message.plans);
                             }
+                            
+                            // 如果有 POI 圖片，添加 POI 地圖圖片
+                            if (message.surroundings_map_images && message.surroundings_map_images.length > 0) {
+                                addPOIMapImages(message.surroundings_map_images, "旅館周邊地標地圖");
+                            }
                         } else {
                             // 普通助理消息
                             addMessage(message.content, 'assistant');
@@ -761,6 +901,12 @@
                     typingIndicator.style.display = 'none';
                     
                     const responseData = data.data;
+                    
+                    // 檢查是否有周邊地標地圖圖片
+                    if (responseData.surroundings_map_images && responseData.surroundings_map_images.length > 0) {
+                        console.log('response 消息中包含周邊地標地圖圖片:', responseData.surroundings_map_images);
+                        addPOIMapImages(responseData.surroundings_map_images, "旅館周邊地標地圖");
+                    }
                     
                     // 如果沒有通過chat_message發送過，則在這裡顯示
                     if (responseData.response && responseData.response.message) {
@@ -1358,6 +1504,326 @@
             initTheme();
             initWebSocket();
         });
+
+        // 創建預設地圖圖片的 data URL
+        function createDefaultMapImage() {
+            // 創建一個 canvas 元素
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 設置 canvas 大小
+            canvas.width = 300;
+            canvas.height = 200;
+            
+            // 繪製背景
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 繪製網格線
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            
+            // 水平線
+            for (let y = 20; y < canvas.height; y += 20) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            // 垂直線
+            for (let x = 20; x < canvas.width; x += 20) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            
+            // 繪製文字
+            ctx.fillStyle = '#666';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('地圖圖片載入失敗', canvas.width / 2, 80);
+            ctx.font = '14px Arial';
+            ctx.fillText('無法顯示周邊地標地圖', canvas.width / 2, 110);
+            
+            // 繪製地圖圖標
+            ctx.fillStyle = '#007bff';
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, 150, 15, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 140);
+            ctx.lineTo(canvas.width / 2 - 8, 155);
+            ctx.lineTo(canvas.width / 2 + 8, 155);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 返回 data URL
+            return canvas.toDataURL('image/png');
+        }
+        
+        // 全局預設地圖圖片 URL
+        const DEFAULT_MAP_IMAGE = createDefaultMapImage();
+        
+        // 添加 POI 地圖圖片
+        function addPOIMapImages(images, title) {
+            console.log('添加 POI 地圖圖片:', images);
+            
+            // 檢查 images 是否為有效數組
+            if (!Array.isArray(images) || images.length === 0) {
+                console.warn('無效的 POI 圖片數據:', images);
+                return;
+            }
+            
+            // 創建可摺疊的消息容器
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'collapsible-message';
+            messageDiv.style.display = 'block';
+            messageDiv.style.position = 'static';
+            
+            // 創建標題
+            const header = document.createElement('div');
+            header.className = 'message-header';
+            header.style.display = 'flex';
+            header.style.position = 'static';
+            header.innerHTML = `
+                <div class="message-content">
+                    <i class="bi bi-map"></i>
+                    <span>${title} (${images.length})</span>
+                </div>
+                <div class="header-controls">
+                    <button class="toggle-btn"><i class="bi bi-chevron-down"></i></button>
+                </div>
+            `;
+            
+            // 創建內容
+            const content = document.createElement('div');
+            content.className = 'collapsible-content';
+            content.style.maxHeight = "0px";
+            content.style.position = 'static';
+            content.style.display = 'block';
+            
+            // 添加 POI 地圖圖片
+            let mapsContent = '<div class="poi-maps-container">';
+            images.forEach((image, index) => {
+                console.log(`處理第 ${index + 1} 個圖片:`, image);
+                
+                // 處理圖片路徑
+                let imagePath;
+                let hotelName = '旅館';
+                
+                // 嘗試獲取旅館名稱
+                if (image.hotel_name) {
+                    hotelName = image.hotel_name;
+                } else if (image.name) {
+                    hotelName = image.name;
+                }
+                
+                // 嘗試獲取圖片路徑
+                if (typeof image.image === 'string') {
+                    imagePath = image.image.startsWith('http') 
+                        ? image.image  // 如果是完整URL，直接使用
+                        : `/static/images/${image.image}`; // 否則添加前綴
+                    console.log(`使用 image 屬性: ${imagePath}`);
+                } else if (image.image_url) {
+                    // 如果有 image_url 屬性，使用它
+                    imagePath = image.image_url;
+                    console.log(`使用 image_url 屬性: ${imagePath}`);
+                } else if (typeof image === 'string') {
+                    // 如果整個 image 對象就是一個字符串，直接使用
+                    imagePath = image.startsWith('http') 
+                        ? image  // 如果是完整URL，直接使用
+                        : `/static/images/${image}`; // 否則添加前綴
+                    console.log(`使用字符串圖片路徑: ${imagePath}`);
+                } else {
+                    // 如果沒有有效的圖片路徑，使用預設圖片
+                    imagePath = DEFAULT_MAP_IMAGE;
+                    console.log('使用預設圖片');
+                }
+                
+                mapsContent += `
+                    <div class="poi-map-card">
+                        <div class="poi-map-header">
+                            <h5 class="poi-map-title">${hotelName} 周邊地標</h5>
+                        </div>
+                        <img src="${imagePath}" class="poi-map-image" alt="${hotelName} 周邊地標" 
+                             onclick="openImageModal(this.src, '${hotelName} 周邊地標')"
+                             onerror="this.onerror=null; this.src='${DEFAULT_MAP_IMAGE}'; this.style.opacity=0.7; console.log('圖片載入失敗:', this.src);">
+                    </div>
+                `;
+            });
+            mapsContent += '</div>';
+            
+            // 添加底部關閉按鈕
+            mapsContent += `
+                <div class="footer-controls">
+                    <button class="close-btn">
+                        <i class="bi bi-x-circle"></i> 關閉
+                    </button>
+                </div>
+            `;
+            
+            content.innerHTML = mapsContent;
+            
+            // 添加事件監聽器
+            header.addEventListener('click', function() {
+                toggleCollapsible(this);
+            });
+            
+            // 添加關閉按鈕事件監聽器
+            content.querySelector('.close-btn').addEventListener('click', function() {
+                toggleCollapsible(header);
+            });
+            
+            // 組合元素
+            messageDiv.appendChild(header);
+            messageDiv.appendChild(content);
+            
+            // 添加到聊天容器
+            chatContainer.appendChild(messageDiv);
+            
+            // 自動展開內容
+            setTimeout(() => {
+                toggleCollapsible(header);
+            }, 300);
+            
+            scrollToBottom();
+        }
+        
+        // 打開圖片模態框
+        function openImageModal(src, title) {
+            // 檢查是否已有模態框，如果有則移除
+            const existingModal = document.getElementById('imageModal');
+            if (existingModal) {
+                document.body.removeChild(existingModal);
+            }
+            
+            // 創建模態框
+            const modal = document.createElement('div');
+            modal.id = 'imageModal';
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.8);
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                z-index: 1050;
+                padding: 20px;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            `;
+            
+            // 創建標題
+            const modalTitle = document.createElement('h4');
+            modalTitle.textContent = title;
+            modalTitle.style.cssText = `
+                color: white;
+                margin-bottom: 15px;
+                text-align: center;
+            `;
+            
+            // 創建圖片
+            const modalImg = document.createElement('img');
+            modalImg.src = src;
+            modalImg.style.cssText = `
+                max-width: 90%;
+                max-height: 80vh;
+                object-fit: contain;
+                border: 2px solid white;
+                border-radius: 5px;
+                opacity: 0;
+                transition: opacity 0.5s ease;
+            `;
+            
+            // 圖片加載完成後顯示
+            modalImg.onload = function() {
+                setTimeout(() => {
+                    modalImg.style.opacity = '1';
+                }, 100);
+            };
+            
+            // 創建關閉按鈕
+            const closeBtn = document.createElement('button');
+            closeBtn.innerHTML = '<i class="bi bi-x-lg"></i> 關閉';
+            closeBtn.style.cssText = `
+                margin-top: 15px;
+                padding: 8px 15px;
+                background-color: #007bff;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                transition: background-color 0.2s ease, transform 0.2s ease;
+            `;
+            
+            closeBtn.onmouseover = function() {
+                this.style.backgroundColor = '#0069d9';
+                this.style.transform = 'scale(1.05)';
+            };
+            
+            closeBtn.onmouseout = function() {
+                this.style.backgroundColor = '#007bff';
+                this.style.transform = 'scale(1)';
+            };
+            
+            closeBtn.onclick = function() {
+                modal.style.opacity = '0';
+                setTimeout(() => {
+                    document.body.removeChild(modal);
+                }, 300);
+            };
+            
+            // 點擊模態框背景也可以關閉
+            modal.onclick = function(event) {
+                if (event.target === modal) {
+                    modal.style.opacity = '0';
+                    setTimeout(() => {
+                        document.body.removeChild(modal);
+                    }, 300);
+                }
+            };
+            
+            // 組合模態框
+            modal.appendChild(modalTitle);
+            modal.appendChild(modalImg);
+            modal.appendChild(closeBtn);
+            
+            // 添加到頁面
+            document.body.appendChild(modal);
+            
+            // 顯示模態框
+            setTimeout(() => {
+                modal.style.opacity = '1';
+            }, 10);
+            
+            // 禁止背景滾動
+            document.body.style.overflow = 'hidden';
+            
+            // 監聽 ESC 鍵關閉模態框
+            const escHandler = function(e) {
+                if (e.key === 'Escape') {
+                    modal.style.opacity = '0';
+                    setTimeout(() => {
+                        document.body.removeChild(modal);
+                        document.body.style.overflow = '';
+                        document.removeEventListener('keydown', escHandler);
+                    }, 300);
+                }
+            };
+            
+            document.addEventListener('keydown', escHandler);
+        }
     </script>
 </body>
 </html> 

@@ -408,7 +408,7 @@ class DateParserAgent(BaseAgent):
         # 檢查入住日期
         if dates.get("check_in"):
             try:
-                check_in_date = datetime.strptime(dates["check_in"], "%Y-%m-%d%z").date()
+                check_in_date = datetime.strptime(dates["check_in"], "%Y-%m-%d").date()
 
                 # 入住日期不能早於今天
                 if check_in_date < today:
@@ -421,11 +421,11 @@ class DateParserAgent(BaseAgent):
         # 檢查退房日期
         if dates.get("check_out"):
             try:
-                check_out_date = datetime.strptime(dates["check_out"], "%Y-%m-%d%z").date()
+                check_out_date = datetime.strptime(dates["check_out"], "%Y-%m-%d").date()
 
                 # 如果有入住日期，退房日期必須晚於入住日期
                 if dates.get("check_in"):
-                    check_in_date = datetime.strptime(dates["check_in"], "%Y-%m-%d%z").date()
+                    check_in_date = datetime.strptime(dates["check_in"], "%Y-%m-%d").date()
                     if check_out_date <= check_in_date:
                         logger.warning(
                             f"退房日期 {dates['check_out']} 不晚於入住日期 {dates['check_in']}，設置為入住日期後一天"
