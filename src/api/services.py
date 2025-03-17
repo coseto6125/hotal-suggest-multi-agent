@@ -4,6 +4,7 @@ API 服務，封裝各種API調用
 
 import aiofiles
 from orjson import loads
+
 from src.api.client import api_client
 
 
@@ -258,7 +259,7 @@ class HotelAPIService:
 
         # 執行搜索
         # results = await self.search_hotel_vacancies(search_params)
-        async with aiofiles.open("hotel_search_system/cache/new.json", "r", encoding="utf-8") as f:
+        async with aiofiles.open("hotel_search_system/cache/new.json", encoding="utf-8") as f:
             results = loads(await f.read())
         return results
 

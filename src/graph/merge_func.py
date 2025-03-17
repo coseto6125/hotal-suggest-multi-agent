@@ -12,6 +12,13 @@ class MergeFunc:
         result = dict1.copy()
         result.update(dict2)
         return result
+    
+    @staticmethod
+    def list_merge(list1: list[Any], list2: list[Any]) -> list[Any]:
+        """合併兩個列表"""
+        result = list1.copy()
+        result.extend(list2)
+        return result
 
     @staticmethod
     def response(response1: dict[str, Any] | None, response2: dict[str, Any] | None) -> dict[str, Any] | None:

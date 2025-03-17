@@ -42,6 +42,8 @@ class HotelRecommendationState(TypedDict, total=False):
     children: Annotated[int, MergeFunc.max_int]  # 兒童人數
     county_ids: Annotated[list[int], MergeFunc.unique_ids]  # 縣市ID
     district_ids: Annotated[list[int], MergeFunc.unique_ids]  # 地區ID
+    llm_recommend_hotel: Annotated[list[str], MergeFunc.list_merge]  # LLM推薦的旅館
+    llm_recommend_poi: Annotated[list[str], MergeFunc.list_merge]  # LLM推薦的POI
 
     # 額外旅館偏好
     has_breakfast: Annotated[bool, MergeFunc.bool_or]  # 是否需要早餐
@@ -353,7 +355,27 @@ class HotelRecommendationWorkflow:
                     searcher_info = self._get_searcher_info(agent_name, result)
                     if searcher_info["type"] == "旅館推薦生成":
                         # TODO: 處理旅館推薦生成,POI資訊預備
-                        pass
+                        result["llm_recommend_poi"] = ["雀客藏居台北南港","雀客藏居台北陽明山"]
+                        if result.get("llm_recommend_poi"):
+                            logger.info(f"開始處理POI資訊預備，推薦POI: {result['llm_recommend_poi']}")
+                            # 使用POISearchAgent處理POI搜索
+                            from src.agents.search.poi_search_agent import poi_search_agent
+
+                            poi_result = await poi_search_agent.process(merged_state)
+
+                            # 合併POI結果到狀態
+                            if "poi_results" in poi_result:
+                                merged_state["poi_results"] = poi_result["poi_results"]
+
+                            # 如果有地圖圖片，透過WebSocket發送給前端
+                            if (
+                                "surroundings_map_images" in poi_result
+                                and poi_result["surroundings_map_images"]
+                                and state.get("session_id")
+                            ):
+                                await self._send_poi_images(state["session_id"], poi_result["surroundings_map_images"])
+                        else:
+                            logger.info("沒有LLM推薦的POI，跳過POI資訊預備")
                     elif searcher_info["type"] and state.get("session_id"):
                         await self._send_agent_progress(state["session_id"], searcher_info["type"], result)
 
@@ -731,6 +753,40 @@ class HotelRecommendationWorkflow:
             logger.error(f"工作流執行失敗: {e}")
             # 返回錯誤信息
             return {"error": str(e), "text_response": "很抱歉，處理您的查詢時發生錯誤。請稍後再試。"}
+
+    async def _send_poi_images(self, session_id: str, surroundings_map_images: list[dict]) -> None:
+        """發送POI地圖圖片到前端"""
+        try:
+            if not surroundings_map_images:
+                logger.warning("沒有POI地圖圖片可發送")
+                return
+
+            logger.info(f"開始發送 {len(surroundings_map_images)} 張POI地圖圖片到前端")
+
+            # 構建圖片消息
+            image_message = {
+                "role": "system",
+                "content_type": "poi_images",
+                "content": "以下是旅館周邊地標地圖",
+                "timestamp": asyncio.get_event_loop().time(),
+                "images": surroundings_map_images,
+            }
+
+            # 發送圖片消息到前端
+            await ws_manager.broadcast_chat_message(session_id, image_message)
+
+            # 發送文字說明
+            hotel_names = [img["hotel_name"] for img in surroundings_map_images]
+            text_message = {
+                "role": "system",
+                "content": f"已為您提供以下旅館的周邊地標地圖：{', '.join(hotel_names)}",
+                "timestamp": asyncio.get_event_loop().time(),
+            }
+            await ws_manager.broadcast_chat_message(session_id, text_message)
+
+            logger.info("POI地圖圖片發送完成")
+        except Exception as e:
+            logger.error(f"發送POI地圖圖片失敗: {e}")
 
 
 # 創建工作流實例（單例模式）
