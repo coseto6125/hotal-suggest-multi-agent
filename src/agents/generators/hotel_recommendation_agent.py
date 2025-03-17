@@ -52,12 +52,12 @@ class HotelRecommendationAgent(BaseAgent):
         """準備LLM輸入"""
         # 將用戶查詢和旅館資料整合為一個完整的message內容
         message_content = []
-        message_content.append(f"用戶提問需求: {query}\n\n")
+        message_content.append(f"用戶需求: {query}\n\n")
 
         # 添加旅館資料
         if hotel_details:
             message_content.append("旅館資料:\n")
-            message_content.append(f"```\n{hotel_details}\n```\n")
+            message_content.append(f"{hotel_details}\n")
 
         return "".join(message_content)
 
@@ -78,16 +78,17 @@ class HotelRecommendationAgent(BaseAgent):
 
             # 添加地理位置資訊
             county = hotel.get("county", {})
-            if county:
-                county_name = county.get("name", "")
-                if county_name:
-                    result_lines.append(f"   所在縣市: {county_name}\n")
-
+            county_name = county.get("name", "") if county else ""
             district = hotel.get("district", {})
-            if district:
-                district_name = district.get("name", "")
+            district_name = district.get("name", "") if district else ""
+
+            if county_name or district_name:
+                location = []
+                if county_name:
+                    location.append(county_name)
                 if district_name:
-                    result_lines.append(f"   所在鄉鎮區: {district_name}\n")
+                    location.append(district_name)
+                result_lines.append(f"   位置: {', '.join(location)}\n")
 
             # 添加簡介
             intro = hotel.get("intro", "")
@@ -100,18 +101,18 @@ class HotelRecommendationAgent(BaseAgent):
             facilities = hotel.get("facilities", [])
             if facilities:
                 facilities_str = ", ".join(facilities)
-                result_lines.append(f"   熱門設施: {facilities_str}\n")
+                result_lines.append(f"   設施: {facilities_str}\n")
 
             # 添加入住和退房時間
             check_in = hotel.get("check_in", "")
             check_out = hotel.get("check_out", "")
             if check_in and check_out:
-                result_lines.append(f"   入住時間: {check_in}, 退房時間: {check_out}\n")
+                result_lines.append(f"   入住: {check_in}, 退房: {check_out}\n")
 
             # 添加聯絡電話
             phone = hotel.get("phone", "")
             if phone:
-                result_lines.append(f"   聯絡電話: {phone}\n")
+                result_lines.append(f"   電話: {phone}\n")
 
             result_lines.append("\n")
 
@@ -129,8 +130,8 @@ class HotelRecommendationAgent(BaseAgent):
             price = plan.get("price", 0)
             description = plan.get("description", "")
 
-            result_lines.append(f"{i + 1}. {plan_name} ({hotel_name})\n")
-            result_lines.append(f"   價格: {price} 元\n")
+            result_lines.append(f"{i + 1}. {plan_name} - {hotel_name}\n")
+            result_lines.append(f"   價格: {price}元\n")
 
             if description:
                 # 取描述的前100個字符並加上省略號
@@ -147,27 +148,32 @@ class HotelRecommendationAgent(BaseAgent):
             self.logger.info("開始使用LLM生成旅館推薦 (流式輸出)")
 
             # 構建系統提示 - 明確定義LLM的角色和任務
-            system_prompt = """
-            你是一個專業的旅館推薦助手，負責為用戶提供精準且有用的旅館推薦。
-            
-            請根據提供的旅館資料和用戶查詢，生成一個全面、有用且引人入勝的回應。
-            
-            你的回應應該包括：
-            1. 最適合用戶需求的2-3間旅館推薦，包括：
-               - 旅館名稱和地址
-               - 價格資訊
-               - 為什麼這些旅館符合用戶需求（基於位置、設施、價格等）
-               - 每間旅館的特色和賣點
-            2. 簡短的住宿建議或提示，幫助用戶做出更好的決定
-            
-            回應要求：
-            - 使用友好、專業的語氣，確保資訊準確且條理清晰
-            - 使用繁體中文回應
-            - 如用戶有特殊要求，請重點說明符合這些要求的旅館
-            - 只推薦提供的旅館資料中存在的旅館，不要編造不存在的旅館
-            - 避免重複旅館的完整細節，因為用戶已經能夠在界面上查看這些資訊
-            - 保持回應簡潔但有價值，突出重點資訊
-            """
+            system_prompt = """你是旅館推薦助手，根據用戶需求推薦合適旅館。
+
+嚴格遵守以下輸出規則:
+1. 使用純文本，完全不使用任何特殊符號或格式標記
+2. 設施列表使用逗號分隔，不使用列表格式
+3. 參考回覆範例，可自行發揮，但必須依據旅館資料和用戶需求真實描述，不能虛構
+4. 最多只提供三間旅館建議，若不是那麼符合，可只提供一間最相近，並且要誠實告知建議調整搜索條件。
+5. 地址只輸出中文地址。
+
+回覆格式範例
+你好！根據你的需求，我推薦以下幾間旅館:
+
+1. 旅館名稱
+- 地址: XX市OO區OO路五段7號
+- 價格: 3500元
+- 特色: 免費早餐，健身房
+- 推薦原因: 推薦原因：高級奢華，提供世界級餐飲與水療服務，適合享受高品質住宿的旅客。
+
+2. 旅館名稱
+- 地址: XX市OO區XXXX四段170號
+- 價格: 2800元
+- 特色: 房間寬敞，有家庭房型
+- 推薦原因: 坐落於湖畔，擁有無敵湖景與靜謐環境，適合放鬆度假與享受自然之美。
+
+如果沒有符合需求的旅館，請誠實告知並建議調整搜索條件。
+"""
 
             # 準備消息列表 - 只包含用戶的查詢和旅館資料
             messages = [{"role": "user", "content": llm_input}]
