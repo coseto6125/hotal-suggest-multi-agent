@@ -61,8 +61,8 @@ class HotelRecommendationState(TypedDict, total=False):
     # 回應結果
     response: Annotated[dict[str, Any], MergeFunc.response]  # 結構化回應
     text_response: Annotated[str, MergeFunc.text_response]  # 文本回應
-    error: Annotated[str, MergeFunc.keep_first]  # 錯誤信息
-    err_msg: Annotated[str, MergeFunc.keep_first]  # 錯誤訊息
+    error: Annotated[str, MergeFunc.keep_not_none]  # 錯誤信息
+    err_msg: Annotated[str, MergeFunc.keep_not_none]  # 錯誤訊息
 
     # 解析器完成狀態
     budget_parsed: Annotated[bool, MergeFunc.bool_or]  # 預算解析完成
@@ -108,6 +108,14 @@ class HotelRecommendationWorkflow:
         self.workflow = self._create_workflow()
         logger.info("工作流初始化完成")
 
+        self.parser_types = {
+            "budgetparseragent": "預算解析器",
+            "dateparseragent": "日期解析器",
+            "geoparseragent": "地理解析器",
+            "foodreqparseragent": "餐飲需求解析器",
+            "guestparseragent": "旅客解析器",
+        }
+
     def _load_parsers(self):
         """載入所有解析器"""
         from src.agents.parsers.instances import parsers
@@ -143,13 +151,17 @@ class HotelRecommendationWorkflow:
         self._add_search_nodes(builder)
         self._add_aggregator_nodes(builder)
         self._add_generator_nodes(builder)
-
-        # 添加錯誤檢查節點
-        self._add_error_check_node(builder)
-
         # 設置邊和條件
         self._setup_workflow_edges(builder)
 
+        # 添加錯誤處理邊
+        def error_handler_condition(state):
+            logger.info(f"錯誤處理條件被調用，狀態: {str(state)[:100]}")
+            return ["error_handler"] if state.get("error") else ["search_router"]
+
+        for node_name in builder.nodes:
+            if "parser" in node_name:
+                builder.add_conditional_edges(node_name, error_handler_condition)
         # 編譯工作流
         return builder.compile()
 
@@ -241,6 +253,12 @@ class HotelRecommendationWorkflow:
 
         # 從解析路由到各個解析器的條件邊
         def parse_route_selector(state):
+            # 檢查是否有錯誤
+            logger.info(f"解析路由選擇器被調用，狀態: {str(state)[:100]}")
+            if state.get("error"):
+                logger.error(f"解析階段發現錯誤: {state.get('error')}")
+                return ["error_handler"]
+            # 返回所有解析器節點列表
             return [
                 "budget_parser",
                 "date_parser",
@@ -302,6 +320,9 @@ class HotelRecommendationWorkflow:
                 agent_name = agent_class.__name__.lower()
                 logger.debug(f"節點執行開始: {agent_name}")
 
+                if error := state.get("error"):
+                    logger.warning(f"節點 {agent_name} 被跳過，因為已存在錯誤: {error}")
+                    return state
                 # 執行節點函數
                 result = await func(state)
 
@@ -311,7 +332,7 @@ class HotelRecommendationWorkflow:
                 # 處理特定類型的節點
                 if "parseragent" in agent_name:
                     # 處理解析器節點
-                    parser_type = self._get_parser_type(agent_name)
+                    parser_type = self.parser_types.get(agent_name, "")
                     if parser_type and state.get("conversation_id"):
                         await self._send_agent_progress(state["conversation_id"], parser_type, result)
                 else:
@@ -335,21 +356,6 @@ class HotelRecommendationWorkflow:
                 return state
 
         return wrapped
-
-    def _get_parser_type(self, parser_name: str) -> str:
-        """根據解析器名稱獲取解析器類型"""
-        parser_types = {
-            "budgetparseragent": "預算解析器",
-            "dateparseragent": "日期解析器",
-            "geoparseragent": "地理解析器",
-            "foodreqparseragent": "餐飲需求解析器",
-            "guestparseragent": "旅客解析器",
-            "hoteltypeparseragent": "旅館類型解析器",
-            "keywordparseragent": "關鍵字解析器",
-            "specialreqparseragent": "特殊需求解析器",
-            "supplyparseragent": "設施解析器",
-        }
-        return parser_types.get(parser_name, "")
 
     def _get_searcher_info(self, agent_name: str, result: dict) -> dict:
         """獲取搜索節點的相關信息"""
@@ -460,13 +466,15 @@ class HotelRecommendationWorkflow:
         logger.error(f"工作流執行中斷: {error_msg}")
 
         # 設置錯誤回應
-        state["text_response"] = f"很抱歉，處理您的查詢時發生錯誤: {error_msg}"
+        if "err_msg" not in state:
+            state["text_response"] = state["err_msg"]
+        else:
+            state["text_response"] = f"很抱歉，處理您的查詢時發生錯誤: {error_msg}"
 
         # 確保有基本的回應結構
         if "response" not in state:
             state["response"] = {}
 
-        state["response"]["error"] = error_msg
         state["response"]["status"] = "error"
 
         return state
@@ -648,10 +656,6 @@ class HotelRecommendationWorkflow:
             dict: 工作流運行結果
         """
         logger.info(f"開始處理查詢: {query}")
-
-        # 如果沒有提供原始查詢，則使用轉換後的查詢
-        if not user_query:
-            user_query = query
 
         # 初始狀態
         initial_state = {
