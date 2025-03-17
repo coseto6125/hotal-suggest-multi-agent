@@ -41,8 +41,26 @@ class HotelSearchFuzzyAgent(BaseAgent):
             # 構建搜索參數
             search_params = {"hotel_name": keyword}
 
-            # 搜索旅館
-            return await self._search_hotels_fuzzy(search_params)
+            # 進行模糊搜索
+            fuzzy_results = await self._fuzzy_match(search_params)
+
+            # 處理搜索結果
+            if fuzzy_results:
+                logger.info(f"模糊搜索到 {len(fuzzy_results)} 個旅館")
+                # 提取旅館名稱
+                hotel_names = [hotel.get("name") for hotel in fuzzy_results if hotel.get("name")]
+                return {
+                    "fuzzy_search_results": fuzzy_results,
+                    "search_type": "fuzzy",
+                    "message": f"使用關鍵字 '{keyword}' 模糊搜索到相關旅館",
+                    "llm_recommend_hotel": hotel_names[:3],  # 只取前三個
+                }
+            logger.warning(f"使用關鍵字 '{keyword}' 未找到相關旅館")
+            return {
+                "fuzzy_search_results": [],
+                "search_type": "none",
+                "message": f"使用關鍵字 '{keyword}' 未找到相關旅館",
+            }
         except Exception as e:
             logger.error(f"旅館模糊搜索處理失敗: {e}")
             return {"fuzzy_search_results": [], "search_type": "error", "message": f"模糊搜索處理失敗: {e!s}"}

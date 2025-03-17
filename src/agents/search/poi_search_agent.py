@@ -25,7 +25,7 @@ class POISearchAgent(BaseAgent):
 
         try:
             # 檢查是否有LLM推薦的POI
-            state["llm_recommend_poi"] = ["雀客藏居台北南港","雀客藏居台北陽明山"] #test
+            # state["llm_recommend_poi"] = ["雀客藏居台北南港","雀客藏居台北陽明山"] # ! mock data
             llm_recommend_poi = state.get("llm_recommend_poi", [])
             if not llm_recommend_poi:
                 logger.warning("沒有LLM推薦的POI，無法搜索周邊地標")

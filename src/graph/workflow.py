@@ -42,8 +42,8 @@ class HotelRecommendationState(TypedDict, total=False):
     children: Annotated[int, MergeFunc.max_int]  # 兒童人數
     county_ids: Annotated[list[int], MergeFunc.unique_ids]  # 縣市ID
     district_ids: Annotated[list[int], MergeFunc.unique_ids]  # 地區ID
-    llm_recommend_hotel: Annotated[list[str], MergeFunc.list_merge]  # LLM推薦的旅館
-    llm_recommend_poi: Annotated[list[str], MergeFunc.list_merge]  # LLM推薦的POI
+    llm_recommend_hotel: Annotated[list[str], MergeFunc.merge_list_top3]  # LLM推薦的旅館
+    llm_recommend_poi: Annotated[list[str], MergeFunc.merge_list_top3]  # LLM推薦的POI
 
     # 額外旅館偏好
     has_breakfast: Annotated[bool, MergeFunc.bool_or]  # 是否需要早餐
@@ -355,7 +355,7 @@ class HotelRecommendationWorkflow:
                     searcher_info = self._get_searcher_info(agent_name, result)
                     if searcher_info["type"] == "旅館推薦生成":
                         # TODO: 處理旅館推薦生成,POI資訊預備
-                        result["llm_recommend_poi"] = ["雀客藏居台北南港","雀客藏居台北陽明山"]
+                        result["llm_recommend_poi"] = ["雀客藏居台北南港", "雀客藏居台北陽明山"]
                         if result.get("llm_recommend_poi"):
                             logger.info(f"開始處理POI資訊預備，推薦POI: {result['llm_recommend_poi']}")
                             # 使用POISearchAgent處理POI搜索
