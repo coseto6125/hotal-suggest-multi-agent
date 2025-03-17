@@ -58,7 +58,7 @@ class HotelRecommendationAgent(BaseAgent):
         # 添加旅館資料
         if hotel_details:
             prompt_lines.append("旅館資料:\n")
-            prompt_lines.append(f"```\n{hotel_details["hotels"]}\n```\n")
+            prompt_lines.append(f"```\n{hotel_details['hotels']}\n```\n")
 
         # 添加指示
         prompt_lines.append("請根據用戶提問需求和提供的旅館資料，生成一個簡短的旅館推薦。推薦應該包括：\n")

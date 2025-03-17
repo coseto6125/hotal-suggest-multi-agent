@@ -338,7 +338,10 @@ class HotelRecommendationWorkflow:
                 else:
                     # 處理搜索節點
                     searcher_info = self._get_searcher_info(agent_name, result)
-                    if searcher_info["type"] and state.get("conversation_id"):
+                    if searcher_info["type"] == "旅館推薦生成":
+                        # TODO: 處理旅館推薦生成,POI資訊預備
+                        pass
+                    elif searcher_info["type"] and state.get("conversation_id"):
                         await self._send_agent_progress(state["conversation_id"], searcher_info["type"], result)
 
                     # 處理搜索結果
@@ -463,12 +466,13 @@ class HotelRecommendationWorkflow:
     def _error_handler(self, state):
         """處理錯誤並中斷工作流"""
         error_msg = state.get("error", "未知錯誤")
-        logger.error(f"工作流執行中斷: {error_msg}")
 
         # 設置錯誤回應
         if "err_msg" not in state:
+            logger.warning(f"工作流可預期異常: {error_msg}")
             state["text_response"] = state["err_msg"]
         else:
+            logger.error(f"工作流執行異常: {error_msg}")
             state["text_response"] = f"很抱歉，處理您的查詢時發生錯誤: {error_msg}"
 
         # 確保有基本的回應結構

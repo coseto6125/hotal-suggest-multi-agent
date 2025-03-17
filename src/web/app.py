@@ -260,7 +260,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
 
                 # 發送回應
                 if result.get("err_msg"):
-                    logger.error(f"工作流執行錯誤app: {result['err_msg']}")
+                    logger.warning(f"工作流執行警告app: {result['err_msg']}")
 
                     # 開始流式回應
                     await websocket.send_json(
@@ -323,7 +323,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                     )
                 else:
                     # 添加助手回應到對話歷史
-                    if "response" in result and "message" in result["response"]:
+                    if result["response"]["status"] != "success":
                         assistant_message = result["response"]["message"]
 
                         # 開始流式回應
@@ -344,7 +344,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                                 }
                             )
                             # 模擬打字速度，隨機延遲
-                            await asyncio.sleep(0.05 + 0.1 * random.random())
+                            await asyncio.sleep(0.05 + 0.07 * random.random())
 
                         # 結束流式回應
                         await websocket.send_json(
@@ -360,8 +360,8 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                         )
 
                     # 發送完整回應
-                    logger.info("發送工作流處理結果")
-                    await websocket.send_json({"type": "response", "data": result})
+                    logger.info(f"工作流處理完成")
+                    return
 
             except WebSocketDisconnect:
                 logger.info(f"WebSocket連接斷開: {conversation_id}")
