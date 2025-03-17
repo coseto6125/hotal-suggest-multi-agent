@@ -63,30 +63,20 @@ class DateParserAgent(BaseAgent):
 
             # 確保退房日期在入住日期之後
             if dates.get("check_in") and dates.get("check_out"):
-                checkin_date = datetime.strptime(dates["check_in"], "%Y-%m-%d%z")
-                checkout_date = datetime.strptime(dates["check_out"], "%Y-%m-%d%z")
+                checkin_date = datetime.strptime(dates["check_in"], "%Y-%m-%d")
+                checkout_date = datetime.strptime(dates["check_out"], "%Y-%m-%d")
                 if checkin_date >= checkout_date:
                     # 如果退房日期不在入住日期之後，設置為入住日期後一天
                     checkout_date = checkin_date + timedelta(days=1)
                     dates["check_out"] = checkout_date.strftime("%Y-%m-%d")
                     logger.warning(f"[{self.name}] 退房日期不在入住日期之後，自動調整為：{dates['check_out']}")
 
-            return {"dates": dates}
+            return dates
 
         except Exception as e:
             logger.error(f"[{self.name}] 日期解析失敗: {e}")
-            # 發生錯誤時使用預設日期
-            today = datetime.now()
-            tomorrow = today + timedelta(days=1)
-            day_after_tomorrow = today + timedelta(days=2)
 
-            return {
-                "dates": {
-                    "check_in": tomorrow.strftime("%Y-%m-%d"),
-                    "check_out": day_after_tomorrow.strftime("%Y-%m-%d"),
-                    "message": f"日期解析失敗，使用預設日期：隔天入住、後天退房（錯誤：{e!s}）",
-                }
-            }
+            return self.err_result
 
     def _extract_dates_with_regex(self, query: str) -> dict[str, str]:
         """使用正則表達式從查詢中提取日期"""
