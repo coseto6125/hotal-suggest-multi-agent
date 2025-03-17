@@ -497,6 +497,7 @@
     <div class="container mt-4">
         <div class="chat-container">
             <h1 class="text-center mb-4">旅館推薦系統</h1>
+            <input type="hidden" id="session_id" value="{{ session_id }}">
             <div class="chat-box" id="chatContainer">
                 <div class="typing-indicator" id="typingIndicator">
                     <span class="dot"></span>
@@ -517,7 +518,7 @@
 
     <script>
         // 全局變量
-        let conversationId = null;
+        let sessionId = null;
         let socket = null;
         
         // DOM元素
@@ -527,24 +528,6 @@
         const typingIndicator = document.getElementById('typingIndicator');
         const themeToggle = document.getElementById('themeToggle');
         const html = document.documentElement;
-        
-        // Cookie 操作函數
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) return parts.pop().split(';').shift();
-            return null;
-        }
-        
-        function setCookie(name, value, days) {
-            let expires = "";
-            if (days) {
-                const date = new Date();
-                date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
-                expires = "; expires=" + date.toUTCString();
-            }
-            document.cookie = name + "=" + (value || "") + expires + "; path=/; SameSite=Lax";
-        }
         
         // 主題切換
         function toggleTheme() {
@@ -578,12 +561,12 @@
                 socket.close();
             }
             
-            // 從cookie獲取conversation_id
-            conversationId = conversationId || getCookie('conversation_id');
+            // 獲取session_id
+            sessionId = document.getElementById('session_id').value || crypto.randomUUID();
             
             // 創建新連接
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat/${conversationId || 'new'}`;
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat?session_id=${sessionId}`;
             socket = new WebSocket(wsUrl);
             
             // 連接打開時
@@ -597,12 +580,10 @@
                 const data = JSON.parse(event.data);
                 console.log('收到消息:', data);  // 調試用
                 
-                // 處理新的conversation_id
-                if (data.type === "conversation_id" && data.data && data.data.conversation_id) {
-                    conversationId = data.data.conversation_id;
-                    // 保存到cookie，有效期7天
-                    setCookie('conversation_id', conversationId, 7);
-                    console.log('新的對話ID已保存:', conversationId);
+                // 處理新的session_id
+                if (data.type === "session_id" && data.data && data.data.session_id) {
+                    sessionId = data.data.session_id;
+                    console.log('新的對話ID已保存:', sessionId);
                     return;
                 }
                 
@@ -870,9 +851,13 @@
         // 獲取當前時間
         function getCurrentTime() {
             const now = new Date();
-            const hours = now.getHours().toString().padStart(2, '0');
+            let hours = now.getHours();
             const minutes = now.getMinutes().toString().padStart(2, '0');
-            return `${hours}:${minutes}`;
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? '下午' : '上午';
+            hours = hours % 12;
+            hours = hours ? hours : 12; // 小時 '0' 應顯示為 '12'
+            return `${ampm} ${hours}:${minutes}:${seconds}`;
         }
         
         // 滾動到底部
@@ -1329,7 +1314,8 @@
             // 發送消息到服務器
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({
-                    message: message  // 使用message字段
+                    message: message,
+                    session_id: sessionId
                 }));
             } else {
                 // 如果WebSocket未連接，嘗試重新連接
@@ -1339,7 +1325,8 @@
                 setTimeout(() => {
                     if (socket && socket.readyState === WebSocket.OPEN) {
                         socket.send(JSON.stringify({
-                            message: message  // 使用message字段
+                            message: message,
+                            session_id: sessionId
                         }));
                     } else {
                         addSystemMessage('無法連接到服務器，請刷新頁面重試。');
@@ -1362,10 +1349,10 @@
         
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
-            // 從伺服器傳遞的模板變量獲取conversation_id
-            const serverConversationId = '{{ conversation_id }}';
-            if (serverConversationId && serverConversationId !== '{{ conversation_id }}') {
-                conversationId = serverConversationId;
+            // 從伺服器傳遞的模板變量獲取session_id
+            const serverSessionId = '{{ session_id }}';
+            if (serverSessionId && serverSessionId !== '{{ session_id }}') {
+                sessionId = serverSessionId;
             }
             
             initTheme();
