@@ -65,10 +65,13 @@ class HotelSearchAgent(BaseAgent):
                 filtered_results = self._filter_valid_results(results)
                 if filtered_results:
                     self._log_search_results(filtered_results)
+                    # 提取旅館名稱並保存到 llm_recommend_hotel
+                    hotel_names = [hotel.get("name") for hotel in filtered_results if hotel.get("name")]
                     return {
                         "hotel_search_results": filtered_results,
                         "search_type": "exact",
                         "message": "成功找到符合條件的旅館",
+                        "llm_recommend_hotel": hotel_names[:3],  # 只取前三個
                     }
 
             # 如果有關鍵字，嘗試使用關鍵字過濾
@@ -78,10 +81,13 @@ class HotelSearchAgent(BaseAgent):
                 filtered_by_keyword = self._filter_by_keyword(relaxed_results, keyword)
                 if filtered_by_keyword:
                     self._log_search_results(filtered_by_keyword)
+                    # 提取旅館名稱並保存到 llm_recommend_hotel
+                    hotel_names = [hotel.get("name") for hotel in filtered_by_keyword if hotel.get("name")]
                     return {
                         "hotel_search_results": filtered_by_keyword,
                         "search_type": "keyword",
                         "message": f"使用關鍵字 '{keyword}' 找到相關旅館",
+                        "llm_recommend_hotel": hotel_names[:3],  # 只取前三個
                     }
 
             # 嘗試使用放寬條件的搜索
@@ -92,10 +98,13 @@ class HotelSearchAgent(BaseAgent):
                 filtered_relaxed_results = self._filter_valid_results(relaxed_results)
                 if filtered_relaxed_results:
                     self._log_search_results(filtered_relaxed_results)
+                    # 提取旅館名稱並保存到 llm_recommend_hotel
+                    hotel_names = [hotel.get("name") for hotel in filtered_relaxed_results if hotel.get("name")]
                     return {
                         "hotel_search_results": filtered_relaxed_results,
                         "search_type": "relaxed",
                         "message": "找到部分符合條件的旅館(放寬條件後搜尋)",
+                        "llm_recommend_hotel": hotel_names[:3],  # 只取前三個
                     }
 
             # 所有搜索都失敗，返回空結果

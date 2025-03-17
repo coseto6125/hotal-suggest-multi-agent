@@ -42,8 +42,8 @@ class HotelRecommendationState(TypedDict, total=False):
     children: Annotated[int, MergeFunc.max_int]  # 兒童人數
     county_ids: Annotated[list[int], MergeFunc.unique_ids]  # 縣市ID
     district_ids: Annotated[list[int], MergeFunc.unique_ids]  # 地區ID
-    llm_recommend_hotel: Annotated[list[str], MergeFunc.list_merge]  # LLM推薦的旅館
-    llm_recommend_poi: Annotated[list[str], MergeFunc.list_merge]  # LLM推薦的POI
+    llm_recommend_hotel: Annotated[list[str], MergeFunc.merge_list_top3]  # LLM推薦的旅館
+    llm_recommend_poi: Annotated[list[str], MergeFunc.merge_list_top3]  # LLM推薦的POI
 
     # 額外旅館偏好
     has_breakfast: Annotated[bool, MergeFunc.bool_or]  # 是否需要早餐

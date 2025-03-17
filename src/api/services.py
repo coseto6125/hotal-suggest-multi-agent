@@ -259,9 +259,9 @@ class HotelAPIService:
 
         # 執行搜索
         # results = await self.search_hotel_vacancies(search_params)
-        # ! mock data
+        
         async with aiofiles.open("hotel_search_system/cache/new.json", encoding="utf-8") as f:
-            results = loads(await f.read())
+            results = loads(await f.read()) # ! mock data
         return results
 
 
