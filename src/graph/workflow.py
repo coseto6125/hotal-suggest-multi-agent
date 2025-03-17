@@ -30,7 +30,7 @@ class HotelRecommendationState(TypedDict, total=False):
     query: Annotated[str, MergeFunc.keep_not_none]  # 繁體中文轉換後的查詢
     query_original: Annotated[str, MergeFunc.keep_not_none]  # 原始查詢字符串
     user_query: Annotated[str, MergeFunc.keep_not_none]  # 用戶輸入的原始查詢
-    conversation_id: Annotated[str, MergeFunc.keep_not_none]  # 會話ID，用於WebSocket通信
+    session_id: Annotated[str, MergeFunc.keep_not_none]  # 會話ID，用於WebSocket通信
     timestamp: Annotated[str, MergeFunc.keep_not_none]  # 查詢時間戳
 
     # 旅館搜索參數
@@ -346,16 +346,16 @@ class HotelRecommendationWorkflow:
                 if "parseragent" in agent_name:
                     # 處理解析器節點
                     parser_type = self.parser_types.get(agent_name, "")
-                    if parser_type and state.get("conversation_id"):
-                        await self._send_agent_progress(state["conversation_id"], parser_type, result)
+                    if parser_type and state.get("session_id"):
+                        await self._send_agent_progress(state["session_id"], parser_type, result)
                 else:
                     # 處理搜索節點
                     searcher_info = self._get_searcher_info(agent_name, result)
                     if searcher_info["type"] == "旅館推薦生成":
                         # TODO: 處理旅館推薦生成,POI資訊預備
                         pass
-                    elif searcher_info["type"] and state.get("conversation_id"):
-                        await self._send_agent_progress(state["conversation_id"], searcher_info["type"], result)
+                    elif searcher_info["type"] and state.get("session_id"):
+                        await self._send_agent_progress(state["session_id"], searcher_info["type"], result)
 
                     # 處理搜索結果
                     if (
@@ -398,7 +398,7 @@ class HotelRecommendationWorkflow:
 
         return searcher_info
 
-    async def _send_agent_progress(self, conversation_id: str, agent_type: str, result: dict) -> None:
+    async def _send_agent_progress(self, session_id: str, agent_type: str, result: dict) -> None:
         """發送解析進度通知"""
         try:
             # 準備進度詳細信息
@@ -440,7 +440,7 @@ class HotelRecommendationWorkflow:
 
             # 發送進度通知到前端
             await ws_manager.broadcast_chat_message(
-                conversation_id,
+                session_id,
                 {
                     "role": "system",
                     "content": message,
@@ -660,13 +660,13 @@ class HotelRecommendationWorkflow:
         # 默認進入結果匯總階段
         return ["search_results_aggregator"]
 
-    async def run(self, query: str, conversation_id: str = "", user_query: str = "") -> dict:
+    async def run(self, query: str, session_id: str = "", user_query: str = "") -> dict:
         """
         運行工作流
 
         參數:
             query (str): 用戶查詢字符串（已轉換為繁體）
-            conversation_id (str): 對話ID，用於WebSocket通信
+            session_id (str): 會話ID，用於WebSocket通信
             user_query (str): 原始用戶查詢（未轉換）
 
         返回:
@@ -680,7 +680,7 @@ class HotelRecommendationWorkflow:
             "query": query,
             "query_original": query,
             "user_query": user_query,
-            "conversation_id": conversation_id,
+            "session_id": session_id,
             "timestamp": datetime.now().isoformat(),
             # 初始化空列表和字典
             "county_ids": [],
@@ -747,7 +747,7 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
             - 如果是字典，應包含:
               - user_query (str): 用戶查詢
               - context (dict): 上下文信息
-              - conversation_id (str): 對話ID
+              - session_id (str): 會話ID
             - 如果是字符串，則直接作為用戶查詢
         progress_callback (callable): 進度回調函數，用於報告處理進度
 
@@ -757,11 +757,11 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
     # 處理不同類型的輸入
     if isinstance(data, str):
         user_query = data
-        conversation_id = ""
+        session_id = ""
         context = {}
     else:
         user_query = data.get("user_query", "")
-        conversation_id = data.get("conversation_id", "")
+        session_id = data.get("session_id", "")
         context = data.get("context", {})
 
     # 檢查查詢是否為空
@@ -771,7 +771,7 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
 
     # 轉換為繁體中文
     query = hotel_recommendation_workflow.opencc.convert(user_query)
-    logger.info(f"處理用戶查詢: {query}, 對話ID: {conversation_id}")
+    logger.info(f"處理用戶查詢: {query}, 會話ID: {session_id}")
 
     # 如果有進度回調，報告開始解析查詢
     if progress_callback:
@@ -784,7 +784,7 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
     try:
         # 使用超時機制運行工作流
         result = await asyncio.wait_for(
-            hotel_recommendation_workflow.run(query=query, conversation_id=conversation_id, user_query=user_query),
+            hotel_recommendation_workflow.run(query=query, session_id=session_id, user_query=user_query),
             timeout=WORKFLOW_TIMEOUT,
         )
 

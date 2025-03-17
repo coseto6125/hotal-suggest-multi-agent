@@ -27,7 +27,7 @@ class HotelRecommendationAgent(BaseAgent):
         # 獲取清洗後的旅館和方案資料
         hotel_details = state.get("response", [])
         query = state.get("query", "")
-        conversation_id = state.get("conversation_id", "")
+        session_id = state.get("session_id", "")
 
         # 如果沒有旅館資料，直接返回
         if not hotel_details:
@@ -39,11 +39,8 @@ class HotelRecommendationAgent(BaseAgent):
 
         # 呼叫LLM生成推薦並直接流式輸出到前端
         recommendation = ""
-        if conversation_id:
-            recommendation = await self._generate_recommendation_stream(llm_input, conversation_id)
-        else:
-            # 如果沒有conversation_id，則使用非流式方式
-            recommendation = await self._generate_recommendation(llm_input)
+        if session_id:
+            recommendation = await self._generate_recommendation_stream(llm_input, session_id)
 
         # 返回結果
         return {
@@ -51,25 +48,18 @@ class HotelRecommendationAgent(BaseAgent):
             "recommendation": recommendation,
         }
 
-    def _prepare_llm_input(self, query: str, hotel_details: list[str]) -> str:
+    def _prepare_llm_input(self, query: str, hotel_details: str) -> str:
         """準備LLM輸入"""
-        prompt_lines = []
-        prompt_lines.append(f"用戶提問需求: {query}\n\n")
+        # 將用戶查詢和旅館資料整合為一個完整的message內容
+        message_content = []
+        message_content.append(f"用戶提問需求: {query}\n\n")
 
         # 添加旅館資料
         if hotel_details:
-            prompt_lines.append("旅館資料:\n")
-            prompt_lines.append(f"```\n{hotel_details['hotels']}\n```\n")
+            message_content.append("旅館資料:\n")
+            message_content.append(f"```\n{hotel_details}\n```\n")
 
-        # 添加指示
-        prompt_lines.append("請根據用戶提問需求和提供的旅館資料，生成一個簡短的旅館推薦。推薦應該包括：\n")
-        prompt_lines.append("1. 最適合用戶需求的2-3間旅館\n")
-        prompt_lines.append("2. 以用戶需求來看，為何推薦這些旅館\n")
-        prompt_lines.append("3. 這個旅館的特色和特點有甚麼其他值得推薦的\n")
-        prompt_lines.append("請使用自然、友善的語氣，並保持簡潔。\n")
-        prompt_lines.append("請使用繁體中文，並根據旅館資料確實回答，不要回覆不在旅館資料內的額外資訊。\n")
-
-        return "".join(prompt_lines)
+        return "".join(message_content)
 
     def _format_hotels_for_llm(self, hotels: list[dict[str, Any]]) -> str:
         """將旅館數據格式化為LLM易於理解的文本"""
@@ -151,80 +141,40 @@ class HotelRecommendationAgent(BaseAgent):
 
         return "".join(result_lines)
 
-    async def _generate_recommendation(self, llm_input: str) -> str:
-        """使用LLM生成旅館推薦 (非流式版本)"""
-        try:
-            self.logger.info("開始使用LLM生成旅館推薦")
-
-            # 構建系統提示
-            system_prompt = """
-            你是一個專業的旅館推薦助手，負責為用戶提供旅館推薦和旅遊建議。
-            請根據提供的旅館數據和用戶查詢，生成一個全面、有用且引人入勝的回應。
-            
-            回應應包括：
-            1. 對用戶查詢的簡短總結和理解
-            2. 推薦的旅館列表，包括：
-               - 名稱和地址
-               - 價格（如有提供）
-               - 為什麼推薦該旅館（基於設施、位置、價格等）
-               - 特色和賣點
-            3. 簡短的住宿建議或提示
-            
-            使用友好、專業的語氣，確保信息準確且條理清晰。
-            如用戶有特殊要求，請重點說明符合這些要求的旅館。
-            避免重複旅館的完整細節，因為用戶已經能夠在界面上查看這些資訊。
-            """
-
-            # 準備消息列表
-            messages = [{"role": "user", "content": llm_input}]
-
-            # 設置請求狀態
-            llm_request = {
-                "llm_request_type": "generate_response",
-                "messages": messages,
-                "system_prompt": system_prompt,
-            }
-
-            # 呼叫LLM Agent
-            response_state = await llm_agent.process(llm_request)
-            response = response_state.get("response", "")
-
-            self.logger.info(f"旅館推薦生成完成，回應長度: {len(response)}")
-            return response
-
-        except Exception as e:
-            self.logger.error(f"生成旅館推薦時發生錯誤: {e}")
-            return f"很抱歉，生成旅館推薦時發生錯誤: {e}"
-
-    async def _generate_recommendation_stream(self, llm_input: str, conversation_id: str) -> str:
+    async def _generate_recommendation_stream(self, llm_input: str, session_id: str) -> str:
         """使用LLM生成旅館推薦並直接流式輸出到前端"""
         try:
             self.logger.info("開始使用LLM生成旅館推薦 (流式輸出)")
 
-            # 構建系統提示
+            # 構建系統提示 - 明確定義LLM的角色和任務
             system_prompt = """
-            你是一個專業的旅館推薦助手，負責為用戶提供旅館推薦和旅遊建議。
-            請根據提供的旅館數據和用戶查詢，生成一個全面、有用且引人入勝的回應。
+            你是一個專業的旅館推薦助手，負責為用戶提供精準且有用的旅館推薦。
             
-            回應應包括：
-            1. 推薦的旅館列表，包括：
-               - 名稱和地址
-               - 價格（如有提供）
-               - 為什麼推薦該旅館（基於設施、位置、價格等）
-               - 特色和賣點
-            2. 簡短的住宿建議或提示
+            請根據提供的旅館資料和用戶查詢，生成一個全面、有用且引人入勝的回應。
             
-            使用友好、專業的語氣，確保信息準確且條理清晰。
-            如用戶有特殊要求，請重點說明符合這些要求的旅館。
-            避免重複旅館的完整細節，因為用戶已經能夠在界面上查看這些資訊。
+            你的回應應該包括：
+            1. 最適合用戶需求的2-3間旅館推薦，包括：
+               - 旅館名稱和地址
+               - 價格資訊
+               - 為什麼這些旅館符合用戶需求（基於位置、設施、價格等）
+               - 每間旅館的特色和賣點
+            2. 簡短的住宿建議或提示，幫助用戶做出更好的決定
+            
+            回應要求：
+            - 使用友好、專業的語氣，確保資訊準確且條理清晰
+            - 使用繁體中文回應
+            - 如用戶有特殊要求，請重點說明符合這些要求的旅館
+            - 只推薦提供的旅館資料中存在的旅館，不要編造不存在的旅館
+            - 避免重複旅館的完整細節，因為用戶已經能夠在界面上查看這些資訊
+            - 保持回應簡潔但有價值，突出重點資訊
             """
 
-            # 準備消息列表
+            # 準備消息列表 - 只包含用戶的查詢和旅館資料
             messages = [{"role": "user", "content": llm_input}]
 
             # 發送開始標記
             await ws_manager.broadcast_chat_message(
-                conversation_id,
+                session_id,
                 {
                     "role": "assistant_stream_start",
                     "content": "",
@@ -248,7 +198,7 @@ class HotelRecommendationAgent(BaseAgent):
                     if parts[0]:  # 如果 <think> 前有內容
                         complete_response.append(parts[0])
                         await ws_manager.broadcast_chat_message(
-                            conversation_id,
+                            session_id,
                             {
                                 "role": "assistant_stream",
                                 "content": parts[0],
@@ -267,7 +217,7 @@ class HotelRecommendationAgent(BaseAgent):
                         if len(parts) > 1 and parts[1]:  # 如果 </think> 後有內容
                             complete_response.append(parts[1])
                             await ws_manager.broadcast_chat_message(
-                                conversation_id,
+                                session_id,
                                 {
                                     "role": "assistant_stream",
                                     "content": parts[1],
@@ -281,7 +231,7 @@ class HotelRecommendationAgent(BaseAgent):
                     # 不在思考區塊內，正常處理
                     complete_response.append(chunk)
                     await ws_manager.broadcast_chat_message(
-                        conversation_id,
+                        session_id,
                         {
                             "role": "assistant_stream",
                             "content": chunk,
@@ -294,7 +244,7 @@ class HotelRecommendationAgent(BaseAgent):
 
             # 發送結束標記
             await ws_manager.broadcast_chat_message(
-                conversation_id,
+                session_id,
                 {
                     "role": "assistant_stream_end",
                     "content": "",
@@ -312,7 +262,7 @@ class HotelRecommendationAgent(BaseAgent):
             # 嘗試發送錯誤消息
             try:
                 await ws_manager.broadcast_chat_message(
-                    conversation_id,
+                    session_id,
                     {
                         "role": "system",
                         "content": f"生成推薦時發生錯誤: {e}",

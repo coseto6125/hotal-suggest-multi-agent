@@ -30,7 +30,7 @@ class ResponseGeneratorAgent(BaseAgent):
         hotel_search_results = state.get("hotel_search_results", [])
         fuzzy_search_results = state.get("fuzzy_search_results", [])
         plan_search_results = state.get("plan_search_results", [])
-        conversation_id = state.get("conversation_id", "")
+        session_id = state.get("session_id", "")
 
         # 記錄詳細的輸入數據類型和值
         self.logger.debug(f"收到的hotel_search_results: {len(hotel_search_results)}間 旅館資料")
@@ -49,9 +49,9 @@ class ResponseGeneratorAgent(BaseAgent):
             response = {"status": "no_results", "message": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件。"}
 
             # 發送無結果的消息給前端
-            if conversation_id:
+            if session_id:
                 await ws_manager.broadcast_chat_message(
-                    conversation_id,
+                    session_id,
                     {
                         "role": "assistant",
                         "content": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件，或提供更多細節，如位置、日期和預算。",
@@ -73,10 +73,12 @@ class ResponseGeneratorAgent(BaseAgent):
         query = state.get("query", "")
         self.logger.info(f"為查詢 '{query}' 整理數據，找到 {len(all_hotels)} 個旅館")
 
-        # 清洗和整理旅館資料
-        hotel_details = "".join(
-            (self._format_hotels_for_llm(all_hotels), self._format_plans_for_llm(plan_search_results))
-        )
+        # 清洗和整理旅館資料 - 將旅館資料和方案資料合併為一個字串
+        hotels_text = self._format_hotels_for_llm(all_hotels)
+        plans_text = self._format_plans_for_llm(plan_search_results)
+
+        # 合併為一個完整的字串
+        hotel_details = hotels_text + plans_text
 
         # 為前端準備旅館和方案資料
         clean_hotels = await self._prepare_frontend_hotels(all_hotels)
@@ -88,8 +90,8 @@ class ResponseGeneratorAgent(BaseAgent):
             response_text += f" 其中 {len(clean_plans)} 個有特別方案。"
 
         # 通過WebSocket發送清洗後的旅館資料
-        if conversation_id:
-            await self._send_hotels_to_frontend(conversation_id, clean_hotels, clean_plans)
+        if session_id:
+            await self._send_hotels_to_frontend(session_id, clean_hotels, clean_plans)
 
         # 返回清洗後的資料
         return {
@@ -672,7 +674,7 @@ class ResponseGeneratorAgent(BaseAgent):
         return "".join(result_lines)
 
     async def _send_hotels_to_frontend(
-        self, conversation_id: str, hotels: list[dict[str, Any]], plans: list[dict[str, Any]]
+        self, session_id: str, hotels: list[dict[str, Any]], plans: list[dict[str, Any]]
     ) -> None:
         """將旅館和方案資料通過WebSocket發送給前端"""
         try:
@@ -759,7 +761,7 @@ class ResponseGeneratorAgent(BaseAgent):
             }
 
             self.logger.debug(f"正在發送綜合資料到前端: {len(frontend_hotels)} 間旅館和 {len(frontend_plans)} 個方案")
-            await ws_manager.broadcast_chat_message(conversation_id, combined_message)
+            await ws_manager.broadcast_chat_message(session_id, combined_message)
             self.logger.info(f"已發送綜合資料到前端: {len(frontend_hotels)} 間旅館和 {len(frontend_plans)} 個方案")
 
         except Exception as e:
@@ -767,7 +769,7 @@ class ResponseGeneratorAgent(BaseAgent):
             # 嘗試發送簡單文本消息通知用戶
             try:
                 await ws_manager.broadcast_chat_message(
-                    conversation_id,
+                    session_id,
                     {
                         "role": "system",
                         "content": f"找到 {len(hotels)} 間旅館和 {len(plans)} 個方案，但無法完整顯示資料。請重試或聯絡客服。",
@@ -858,9 +860,16 @@ class ResponseGeneratorAgent(BaseAgent):
             return "無旅館資料"
 
         result_lines = []
-        for i, hotel in enumerate(hotels):  # 限制LLM處理的數量
+        result_lines.append("旅館資料\n\n")
+
+        # 限制處理的旅館數量，避免超出LLM上下文長度
+        max_hotels = min(10, len(hotels))
+
+        for i, hotel in enumerate(hotels[:max_hotels]):
             name = hotel.get("name", "未知")
             address = hotel.get("address", "未知")
+            price = hotel.get("price", "未提供")
+            rating = hotel.get("rating_text", "")
 
             # 獲取縣市區域資訊
             location_info = hotel.get("location_info", {})
@@ -876,48 +885,48 @@ class ResponseGeneratorAgent(BaseAgent):
                 else (county_name or district_name or "")
             )
 
-            # 旅館基本資訊
-            result_lines.append(f"【旅館{i + 1}】{name}\n")
+            # 旅館基本資訊 - 使用更簡潔的格式
+            result_lines.append(f"旅館{i + 1}: {name}\n")
             result_lines.append(f"地址: {address}\n")
             if location_text:
                 result_lines.append(f"位置: {location_text}\n")
-
-            result_lines.append(f"價格: {hotel.get('price', '未提供')}\n")
-
-            if hotel.get("rating_text"):
-                result_lines.append(f"評價: {hotel.get('rating_text', '')}\n")
+            result_lines.append(f"價格: {price}\n")
+            if rating:
+                result_lines.append(f"評價: {rating}\n")
 
             # 入住退房資訊
             check_in = hotel.get("check_in", "")
             check_out = hotel.get("check_out", "")
             if check_in and check_out:
-                result_lines.append(f"入住: {check_in}, 退房: {check_out}\n")
+                result_lines.append(f"入住/退房: {check_in} / {check_out}\n")
 
-            if hotel.get("intro"):
-                result_lines.append(f"簡介: {hotel.get('intro', '')}\n")
+            # 設施資訊 - 使用簡潔的清單格式
+            facilities = hotel.get("facilities", [])
+            if facilities:
+                popular_facilities = [f.get("name", "") for f in facilities if f.get("is_popular", True)]
+                if popular_facilities:
+                    result_lines.append("主要設施: ")
+                    result_lines.append(", ".join(popular_facilities[:5]))  # 限制顯示的設施數量
+                    result_lines.append("\n")
 
-            # 設施資訊
-            if hotel.get("facilities"):
-                popular = ", ".join(i["name"] for i in hotel["facilities"][:5] if i["is_popular"])  # 限制數量
-                result_lines.append(f"熱門特色: {popular}\n")
-
-            # 房型資訊
-            if hotel.get("suitable_room_types"):
+            # 房型資訊 - 使用簡潔的清單格式
+            room_types = hotel.get("suitable_room_types", [])
+            if room_types:
                 result_lines.append("客房類型:\n")
-                for j, room in enumerate(hotel["suitable_room_types"][:2]):  # 限制顯示的房型數量
-                    result_lines.append(
-                        f"  - {room.get('name', '')}: {room.get('price', '')}, 可住{room.get('adults')}人\n"
-                    )
+                for j, room in enumerate(room_types[:3]):  # 限制顯示的房型數量
+                    room_name = room.get("name", "")
+                    room_price = room.get("price", "")
+                    room_capacity = room.get("adults", 0)
+                    result_lines.append(f"  - {room_name}: {room_price}, 可住{room_capacity}人\n")
 
             # 旅館簡介
-            if hotel.get("intro_summary"):
-                result_lines.append(f"簡介: {hotel.get('intro_summary', '')}\n")
+            intro = hotel.get("intro", "")
+            if intro:
+                # 取簡介的前150個字符並加上省略號
+                short_intro = intro[:150] + "..." if len(intro) > 150 else intro
+                result_lines.append(f"簡介: {short_intro}\n")
 
-            # 取消政策
-            # if hotel.get("cancel_policies"):
-            #     for policy in hotel["cancel_policies"]:
-            #         result_lines.append(f"取消政策: {policy.get('period', '')}{policy.get('description', '')}\n")
-
+            # 添加分隔符
             result_lines.append("\n")
 
         return "".join(result_lines)
@@ -927,28 +936,58 @@ class ResponseGeneratorAgent(BaseAgent):
         if not plans:
             return ""
 
-        result = "【特價方案】\n"
-        for i, plan in enumerate(plans[:3]):  # 限制數量
-            name = plan.get("name", "未知方案")
+        result_lines = []
+        result_lines.append("特價方案\n\n")
+
+        # 限制處理的方案數量
+        max_plans = min(5, len(plans))
+
+        for i, plan in enumerate(plans[:max_plans]):
+            name = plan.get("plan_name", "未知方案")
             hotel_name = plan.get("hotel_name", "")
+            price = plan.get("price", "")
+            discount = plan.get("discount_percent", "")
 
-            result += f"{i + 1}. {name} ({hotel_name})\n"
-            result += f"   價格: {plan.get('price', '')}"
+            # 方案基本資訊 - 使用更簡潔的格式
+            result_lines.append(f"方案{i + 1}: {name}\n")
+            result_lines.append(f"旅館: {hotel_name}\n")
+            result_lines.append(f"價格: {price}")
 
-            if plan.get("discount_percent"):
-                result += f" (折扣: {plan.get('discount_percent', '')})"
+            if discount:
+                result_lines.append(f" (折扣: {discount})")
 
-            result += "\n"
+            result_lines.append("\n")
 
-            if plan.get("date_range"):
-                result += f"   有效期間: {plan.get('date_range', '')}\n"
+            # 日期範圍
+            date_range = self._format_date_range(plan.get("start_date"), plan.get("end_date"))
+            if date_range and date_range != "不限日期":
+                result_lines.append(f"有效期間: {date_range}\n")
 
-            if plan.get("description_summary"):
-                result += f"   內容: {plan.get('description_summary', '')}\n"
+            # 方案描述
+            description = plan.get("description", "")
+            if description:
+                # 取描述的前150個字符並加上省略號
+                short_desc = description[:150] + "..." if len(description) > 150 else description
+                result_lines.append(f"內容: {short_desc}\n")
 
-            result += "\n"
+            # 方案條款 - 使用簡潔的清單格式
+            terms = plan.get("terms", [])
+            if terms and isinstance(terms, list) and terms:
+                result_lines.append("條款:\n")
+                for term in terms[:3]:  # 限制顯示的條款數量
+                    result_lines.append(f"  - {term}\n")
 
-        return result
+            # 適用房型 - 使用簡潔的清單格式
+            room_types = plan.get("room_types", [])
+            if room_types and isinstance(room_types, list) and room_types:
+                result_lines.append("適用房型:\n")
+                for room in room_types[:2]:  # 限制顯示的房型數量
+                    result_lines.append(f"  - {room.get('name', '')}\n")
+
+            # 添加分隔符
+            result_lines.append("\n")
+
+        return "".join(result_lines)
 
 
 # 創建回應生成Agent實例

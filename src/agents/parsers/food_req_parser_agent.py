@@ -32,8 +32,8 @@ class FoodReqParserAgent(BaseAgent):
         ]
 
     async def process(self, state: dict[str, Any]) -> dict[str, Any]:
-        """處理餐飲需求解析請求"""
-        logger.debug(f"[{self.name}] 開始處理餐飲需求解析請求")
+        """處理餐食需求解析請求"""
+        logger.debug(f"[{self.name}] 開始處理餐食需求解析請求")
 
         # 從輸入中提取查詢和上下文
         query = state.get("query", "")

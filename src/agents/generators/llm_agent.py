@@ -152,8 +152,6 @@ class LLMAgent(BaseAgent):
         縣市: {counties_str}
         鄉鎮區: {districts_str}
         
-        請以JSON格式返回結果，格式如下：
-{json_format}
         
         如果某些參數未在查詢中提及，請將其設置為null。
         
