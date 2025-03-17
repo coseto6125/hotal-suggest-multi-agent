@@ -528,6 +528,24 @@
         const themeToggle = document.getElementById('themeToggle');
         const html = document.documentElement;
         
+        // Cookie 操作函數
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
+        
+        function setCookie(name, value, days) {
+            let expires = "";
+            if (days) {
+                const date = new Date();
+                date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+                expires = "; expires=" + date.toUTCString();
+            }
+            document.cookie = name + "=" + (value || "") + expires + "; path=/; SameSite=Lax";
+        }
+        
         // 主題切換
         function toggleTheme() {
             const currentTheme = html.getAttribute('data-theme');
@@ -560,6 +578,9 @@
                 socket.close();
             }
             
+            // 從cookie獲取conversation_id
+            conversationId = conversationId || getCookie('conversation_id');
+            
             // 創建新連接
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat/${conversationId || 'new'}`;
@@ -575,6 +596,15 @@
             socket.onmessage = function(event) {
                 const data = JSON.parse(event.data);
                 console.log('收到消息:', data);  // 調試用
+                
+                // 處理新的conversation_id
+                if (data.type === "conversation_id" && data.data && data.data.conversation_id) {
+                    conversationId = data.data.conversation_id;
+                    // 保存到cookie，有效期7天
+                    setCookie('conversation_id', conversationId, 7);
+                    console.log('新的對話ID已保存:', conversationId);
+                    return;
+                }
                 
                 // 處理錯誤消息
                 if (data.error) {
@@ -601,8 +631,34 @@
                             oldStreamContainer.id = '';
                         }
                         
+                        // 創建新的流式回應容器
+                        const newStreamContainer = document.createElement('div');
+                        newStreamContainer.id = 'stream-response-container';
+                        newStreamContainer.className = 'message assistant-message';
+                        
+                        // 創建內容容器
+                        const newContentDiv = document.createElement('div');
+                        newContentDiv.className = 'message-content';
+                        newContentDiv.id = 'stream-content';
+                        newContentDiv.innerHTML = '';
+                        
+                        // 創建時間顯示元素
+                        const newTimeDiv = document.createElement('div');
+                        newTimeDiv.className = 'message-time';
+                        newTimeDiv.textContent = getCurrentTime();
+                        
+                        // 添加內容和時間到消息元素
+                        newStreamContainer.appendChild(newContentDiv);
+                        newStreamContainer.appendChild(newTimeDiv);
+                        
+                        // 添加到聊天框
+                        chatContainer.appendChild(newStreamContainer);
+                        
                         // 顯示打字指示器
                         typingIndicator.style.display = 'block';
+                        
+                        // 滾動到底部
+                        scrollToBottom();
                         
                         return;
                     }
@@ -803,26 +859,20 @@
         const MAX_RECENT_MESSAGES = 5;
         
         function isRecentMessage(content) {
-            // 檢查最近的消息中是否有相同內容
-            if (recentMessages.includes(content)) {
-                return true;
-            }
-            
-            // 將這條消息添加到最近消息列表
-            recentMessages.push(content);
-            
-            // 保持列表不超過指定長度
-            if (recentMessages.length > MAX_RECENT_MESSAGES) {
-                recentMessages.shift(); // 移除最早的消息
-            }
-            
-            return false;
+            return recentMessages.some(msg => {
+                // 移除HTML標籤進行比較
+                const plainMsg = msg.replace(/<[^>]*>/g, '');
+                const plainContent = content.replace(/<[^>]*>/g, '');
+                return plainMsg.trim() === plainContent.trim();
+            });
         }
         
         // 獲取當前時間
         function getCurrentTime() {
             const now = new Date();
-            return now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes}`;
         }
         
         // 滾動到底部
@@ -1233,21 +1283,28 @@
             }
         }
         
-        // 格式化消息（簡單的Markdown支持）
+        // 格式化消息，處理換行符和特殊字符
         function formatMessage(content) {
-            // 處理代碼塊
-            content = content.replace(/```([^`]+)```/g, '<pre>$1</pre>');
+            if (!content) return '';
             
-            // 處理粗體
-            content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            // 處理換行符
+            let formatted = content.replace(/\n/g, '<br>');
             
-            // 處理斜體
-            content = content.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            // 處理連續空格
+            formatted = formatted.replace(/ {2}/g, '&nbsp;&nbsp;');
             
-            // 處理換行
-            content = content.replace(/\n/g, '<br>');
+            // 處理特殊字符
+            formatted = formatted
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+                
+            // 恢復<br>標籤
+            formatted = formatted.replace(/&lt;br&gt;/g, '<br>');
             
-            return content;
+            return formatted;
         }
         
         // 發送消息
@@ -1305,6 +1362,12 @@
         
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
+            // 從伺服器傳遞的模板變量獲取conversation_id
+            const serverConversationId = '{{ conversation_id }}';
+            if (serverConversationId && serverConversationId !== '{{ conversation_id }}') {
+                conversationId = serverConversationId;
+            }
+            
             initTheme();
             initWebSocket();
         });

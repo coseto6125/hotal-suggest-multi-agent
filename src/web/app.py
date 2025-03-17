@@ -3,9 +3,11 @@ FastAPI 應用，提供Web界面和API
 """
 
 import asyncio
+import random
+import uuid
 from typing import Any
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -57,19 +59,47 @@ async def startup_event():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def get_home(request: Request):
+async def get_home(request: Request, response: Response):
     """首頁"""
-    return templates.TemplateResponse("index.html", {"request": request})
+    # 檢查cookie中是否有conversation_id
+    conversation_id = request.cookies.get("conversation_id")
+
+    # 如果沒有，生成新的conversation_id
+    if not conversation_id:
+        conversation_id = str(uuid.uuid4())
+        # 設置cookie，有效期7天
+        response.set_cookie(
+            key="conversation_id",
+            value=conversation_id,
+            max_age=7 * 24 * 60 * 60,  # 7天
+            httponly=True,
+            samesite="lax",
+        )
+
+    return templates.TemplateResponse("index.html", {"request": request, "conversation_id": conversation_id})
 
 
 @app.post("/api/chat")
-async def chat(message: dict[str, Any]):
+async def chat(message: dict[str, Any], request: Request, response: Response):
     """聊天 API"""
     try:
-        # 獲取對話 ID
+        # 獲取對話 ID，優先從請求中獲取，其次從cookie中獲取
+        async_time = asyncio.get_event_loop().time
         conversation_id = message.get("conversation_id")
         if not conversation_id:
-            conversation_id = str(asyncio.get_event_loop().time())
+            conversation_id = request.cookies.get("conversation_id")
+
+        # 如果仍然沒有，生成新的conversation_id
+        if not conversation_id:
+            conversation_id = str(uuid.uuid4())
+            # 設置cookie，有效期7天
+            response.set_cookie(
+                key="conversation_id",
+                value=conversation_id,
+                max_age=7 * 24 * 60 * 60,  # 7天
+                httponly=True,
+                samesite="lax",
+            )
 
         # 初始化對話歷史
         if conversation_id not in conversation_history:
@@ -77,7 +107,7 @@ async def chat(message: dict[str, Any]):
 
         # 添加用戶消息
         conversation_history[conversation_id].append(
-            {"role": "user", "content": message.get("user_query", ""), "timestamp": asyncio.get_event_loop().time()}
+            {"role": "user", "content": message.get("user_query", ""), "timestamp": async_time()}
         )
 
         # 運行工作流
@@ -92,14 +122,14 @@ async def chat(message: dict[str, Any]):
         # 添加系統回應
         if "error" in result:
             conversation_history[conversation_id].append(
-                {"role": "system", "content": f"錯誤: {result['error']}", "timestamp": asyncio.get_event_loop().time()}
+                {"role": "system", "content": f"錯誤: {result['error']}", "timestamp": async_time()}
             )
         else:
             conversation_history[conversation_id].append(
                 {
                     "role": "assistant",
                     "content": result.get("response", {}).get("message", ""),
-                    "timestamp": asyncio.get_event_loop().time(),
+                    "timestamp": async_time(),
                 }
             )
 
@@ -112,23 +142,23 @@ async def chat(message: dict[str, Any]):
 @app.websocket("/ws/chat/{conversation_id}")
 async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     """WebSocket 聊天端點"""
+    async_time = asyncio.get_event_loop().time
     try:
-        # 建立連接
+        # 先建立連接，這必須是第一步
         await ws_manager.connect(websocket, conversation_id)
+
+        # 如果conversation_id是'new'，生成新的UUID
+        if conversation_id == "new":
+            conversation_id = str(uuid.uuid4())
+            # 通知客戶端新的conversation_id
+            await websocket.send_json({"type": "conversation_id", "data": {"conversation_id": conversation_id}})
 
         # 初始化對話歷史
         if conversation_id not in conversation_history:
             conversation_history[conversation_id] = []
 
         # 發送歡迎消息
-        await ws_manager.broadcast_chat_message(
-            conversation_id,
-            {
-                "role": "assistant",
-                "content": "您好！請告訴我您的旅館需求，例如地點、日期、人數和預算等。",
-                "timestamp": asyncio.get_event_loop().time(),
-            },
-        )
+        await send_chat_message(conversation_id, "您好！請告訴我您的旅館需求，要包含地點、日期、人數和預算喔！")
 
         while True:
             try:
@@ -149,29 +179,19 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 # 如果沒有用戶查詢，發送錯誤提示
                 if not user_query:
                     logger.warning("收到空的用戶查詢")
-                    await ws_manager.broadcast_chat_message(
+                    await send_chat_message(
                         conversation_id,
-                        {
-                            "role": "system",
-                            "content": "請輸入您的旅遊需求，例如：'我想在台北找間飯店，2大1小，預算3000以內'",
-                            "timestamp": asyncio.get_event_loop().time(),
-                        },
+                        "請輸入您的旅遊需求，例如：'我想在台北找間飯店，2大1小，預算3000以內'",
+                        role="system",
                     )
                     continue
 
                 # 將用戶消息發送回前端顯示
-                await ws_manager.broadcast_chat_message(
-                    conversation_id,
-                    {
-                        "role": "user",
-                        "content": user_query,
-                        "timestamp": asyncio.get_event_loop().time(),
-                    },
-                )
+                await send_chat_message(conversation_id, user_query, role="user")
 
                 # 添加用戶消息到對話歷史
                 conversation_history[conversation_id].append(
-                    {"role": "user", "content": user_query, "timestamp": asyncio.get_event_loop().time()}
+                    {"role": "user", "content": user_query, "timestamp": async_time()}
                 )
 
                 # 運行工作流
@@ -183,6 +203,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 ) -> None:
                     """處理進度回調"""
                     # 根據階段設置不同的消息
+                    logger.info(f"進度回調: {stage}")
                     if stage == "parse_query":
                         content = "正在分析您的需求..."
                     elif stage == "geo_parse" and geo_data:
@@ -226,15 +247,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                         content = f"處理中... ({stage})"
 
                     # 發送進度消息
-                    await ws_manager.broadcast_chat_message(
-                        conversation_id,
-                        {
-                            "role": "system",
-                            "content": content,
-                            "timestamp": asyncio.get_event_loop().time(),
-                            "is_progress": True,
-                        },
-                    )
+                    await send_chat_message(conversation_id, content, role="system", is_progress=True)
 
                 result = await run_workflow(
                     {
@@ -246,36 +259,104 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 )
 
                 # 發送回應
-                if result.get("error"):
-                    logger.error(f"工作流執行錯誤: {result['error']}")
-                    await ws_manager.broadcast_chat_message(
-                        conversation_id,
+                if result.get("err_msg"):
+                    logger.error(f"工作流執行錯誤app: {result['err_msg']}")
+
+                    # 開始流式回應
+                    await websocket.send_json(
                         {
-                            "role": "system",
-                            "content": f"處理您的請求時發生錯誤: {result['err_msg']}",
-                            "timestamp": asyncio.get_event_loop().time(),
-                        },
+                            "type": "chat_message",
+                            "data": {"role": "assistant_stream_start", "content": "", "timestamp": async_time()},
+                        }
+                    )
+
+                    # 獲取錯誤消息
+                    error_message = result.get("err_msg", "很抱歉，系統繁忙，請再試一次！")
+
+                    # 如果錯誤消息是字符串，轉換為列表
+                    if isinstance(error_message, str):
+                        error_message = [error_message]
+
+                    # 逐字符發送錯誤消息
+                    full_message = ""
+                    for msg in error_message:
+                        for char in msg:
+                            full_message += char
+                            # 發送流式消息
+                            await websocket.send_json(
+                                {
+                                    "type": "chat_message",
+                                    "data": {"role": "assistant_stream", "content": char, "timestamp": async_time()},
+                                }
+                            )
+                            # 模擬打字速度，隨機延遲
+                            await asyncio.sleep(0.02 + 0.01 * random.random())
+
+                        # 消息之間添加換行
+                        if msg != error_message[-1]:
+                            full_message += "\n"
+                            await websocket.send_json(
+                                {
+                                    "type": "chat_message",
+                                    "data": {"role": "assistant_stream", "content": "\n", "timestamp": async_time()},
+                                }
+                            )
+                            await asyncio.sleep(0.3)
+
+                    # 結束流式回應
+                    await websocket.send_json(
+                        {
+                            "type": "chat_message",
+                            "data": {"role": "assistant_stream_end", "content": "", "timestamp": async_time()},
+                        }
+                    )
+
+                    # 添加到對話歷史
+                    conversation_history[conversation_id].append(
+                        {"role": "assistant", "content": full_message, "timestamp": async_time()}
+                    )
+
+                elif result.get("error"):
+                    logger.error(f"工作流執行錯誤app: {result['error']}")
+                    await send_chat_message(
+                        conversation_id, f"處理您的請求時發生錯誤: {result.get('err_msg', '未知錯誤')}", role="system"
                     )
                 else:
                     # 添加助手回應到對話歷史
                     if "response" in result and "message" in result["response"]:
                         assistant_message = result["response"]["message"]
-                        conversation_history[conversation_id].append(
+
+                        # 開始流式回應
+                        await websocket.send_json(
                             {
-                                "role": "assistant",
-                                "content": assistant_message,
-                                "timestamp": asyncio.get_event_loop().time(),
+                                "type": "chat_message",
+                                "data": {"role": "assistant_stream_start", "content": "", "timestamp": async_time()},
                             }
                         )
 
-                        # 發送助手回應給前端顯示
-                        await ws_manager.broadcast_chat_message(
-                            conversation_id,
+                        # 逐字符發送回應
+                        for char in assistant_message:
+                            # 發送流式消息
+                            await websocket.send_json(
+                                {
+                                    "type": "chat_message",
+                                    "data": {"role": "assistant_stream", "content": char, "timestamp": async_time()},
+                                }
+                            )
+                            # 模擬打字速度，隨機延遲
+                            await asyncio.sleep(0.05 + 0.1 * random.random())
+
+                        # 結束流式回應
+                        await websocket.send_json(
                             {
-                                "role": "assistant",
-                                "content": assistant_message,
-                                "timestamp": asyncio.get_event_loop().time(),
-                            },
+                                "type": "chat_message",
+                                "data": {"role": "assistant_stream_end", "content": "", "timestamp": async_time()},
+                            }
+                        )
+
+                        # 添加到對話歷史
+                        conversation_history[conversation_id].append(
+                            {"role": "assistant", "content": assistant_message, "timestamp": async_time()}
                         )
 
                     # 發送完整回應
@@ -287,14 +368,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 break
             except Exception as e:
                 logger.error(f"處理WebSocket消息時發生錯誤: {e}")
-                await ws_manager.broadcast_chat_message(
-                    conversation_id,
-                    {
-                        "role": "system",
-                        "content": f"處理您的請求時發生錯誤: {e!s}",
-                        "timestamp": asyncio.get_event_loop().time(),
-                    },
-                )
+                await send_chat_message(conversation_id, f"處理您的請求時發生錯誤: {e!s}", role="system")
 
     except Exception as e:
         logger.error(f"WebSocket連接處理失敗: {e}")
@@ -303,19 +377,25 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
         ws_manager.disconnect(conversation_id)
 
 
-@app.post("/api/chat/v2")
-async def chat_endpoint(data: dict):
+async def send_chat_message(
+    conversation_id: str, content: str, role: str = "assistant", is_progress: bool = False
+) -> None:
     """
-    聊天 API 端點 (v2 版本)
+    發送聊天消息的抽象函數
 
     Args:
-        data: 請求數據
-
-    Returns:
-        回應數據
+        conversation_id: 對話ID
+        role: 消息角色 (user, assistant, system)
+        content: 消息內容
+        is_progress: 是否為進度消息
     """
-    try:
-        return await run_workflow(data)
-    except Exception as e:
-        logger.error(f"API 處理錯誤: {e}")
-        return {"error": str(e)}
+    async_time = asyncio.get_event_loop().time
+    await ws_manager.broadcast_chat_message(
+        conversation_id,
+        {
+            "role": role,
+            "content": content,
+            "timestamp": async_time(),
+            "is_progress": is_progress,
+        },
+    )

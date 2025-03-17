@@ -24,6 +24,7 @@ class WebSocketManager:
 
     async def connect(self, websocket: WebSocket, conversation_id: str):
         """接受 WebSocket 連接"""
+        # 確保先接受連接
         await websocket.accept()
         self.active_connections[conversation_id] = websocket
         logger.info(f"WebSocket 連接已建立: {conversation_id}")
@@ -36,7 +37,7 @@ class WebSocketManager:
         if conversation_id in self.active_connections:
             # 停止心跳任務
             self.stop_heartbeat(conversation_id)
-
+            # 移除連接
             del self.active_connections[conversation_id]
             logger.info(f"WebSocket 連接已關閉: {conversation_id}")
 
@@ -50,6 +51,8 @@ class WebSocketManager:
             logger.debug(f"進度更新已發送: {conversation_id}")
         except Exception as e:
             logger.error(f"發送進度更新失敗: {e}")
+            # 連接可能已斷開，移除連接
+            self.disconnect(conversation_id)
 
     async def broadcast_chat_message(self, conversation_id: str, message: dict[str, Any]):
         """廣播聊天消息"""
@@ -58,36 +61,11 @@ class WebSocketManager:
 
         try:
             await self.active_connections[conversation_id].send_json({"type": "chat_message", "data": message})
-            logger.debug(f"聊天消息已發送: {message}")
+            logger.debug(f"聊天消息已發送: {conversation_id}")
         except Exception as e:
             logger.error(f"發送聊天消息失敗: {e}")
-
-    async def send_stream_response(self, conversation_id: str, response: StreamChatResponse | dict[str, Any]):
-        """發送流式回應"""
-        if conversation_id not in self.active_connections:
-            return
-
-        try:
-            websocket = self.active_connections[conversation_id]
-            if isinstance(response, StreamChatResponse):
-                await websocket.send_text(orjson.dumps(response.model_dump()).decode("utf-8"))
-                logger.debug(f"流式回應已發送: {response.message_chunk[:20]}...")
-            else:
-                await websocket.send_text(orjson.dumps(response).decode("utf-8"))
-                logger.debug(f"流式回應已發送: {str(response)[:20]}...")
-        except Exception as e:
-            logger.error(f"發送流式回應失敗: {e}")
-
-    async def broadcast_text(self, conversation_id: str, message: str):
-        """廣播文本消息"""
-        if conversation_id not in self.active_connections:
-            return
-
-        try:
-            await self.active_connections[conversation_id].send_text(message)
-            logger.debug(f"文本消息已發送: {message[:20]}...")
-        except Exception as e:
-            logger.error(f"發送文本消息失敗: {e}")
+            # 連接可能已斷開，移除連接
+            self.disconnect(conversation_id)
 
     def start_heartbeat(self, conversation_id: str):
         """啟動心跳任務"""
@@ -131,6 +109,33 @@ class WebSocketManager:
             logger.error(f"發送心跳訊息失敗: {e}")
             # 連接可能已斷開，移除連接
             self.disconnect(conversation_id)
+
+    async def send_stream_response(self, conversation_id: str, response: StreamChatResponse | dict[str, Any]):
+        """發送流式回應"""
+        if conversation_id not in self.active_connections:
+            return
+
+        try:
+            websocket = self.active_connections[conversation_id]
+            if isinstance(response, StreamChatResponse):
+                await websocket.send_text(orjson.dumps(response.model_dump()).decode("utf-8"))
+                logger.debug(f"流式回應已發送: {response.message_chunk[:20]}...")
+            else:
+                await websocket.send_text(orjson.dumps(response).decode("utf-8"))
+                logger.debug(f"流式回應已發送: {str(response)[:20]}...")
+        except Exception as e:
+            logger.error(f"發送流式回應失敗: {e}")
+
+    async def broadcast_text(self, conversation_id: str, message: str):
+        """廣播文本消息"""
+        if conversation_id not in self.active_connections:
+            return
+
+        try:
+            await self.active_connections[conversation_id].send_text(message)
+            logger.debug(f"文本消息已發送: {message[:20]}...")
+        except Exception as e:
+            logger.error(f"發送文本消息失敗: {e}")
 
 
 def split_message_into_chunks(message: str, max_chunk_size: int = 100) -> list[str]:
