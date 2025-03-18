@@ -258,10 +258,10 @@ class HotelAPIService:
             search_params["highest_price"] = params["budget_max"]
 
         # 執行搜索
-        # results = await self.search_hotel_vacancies(search_params)
+        results = await self.search_hotel_vacancies(search_params)
         
-        async with aiofiles.open("hotel_search_system/cache/new.json", encoding="utf-8") as f:
-            results = loads(await f.read()) # ! mock data
+        # async with aiofiles.open("hotel_search_system/cache/new.json", encoding="utf-8") as f:
+        #     results = loads(await f.read()) # ! mock data
         return results
 
 

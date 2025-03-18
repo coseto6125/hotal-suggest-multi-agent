@@ -72,6 +72,8 @@
             border-radius: 18px;
             max-width: 80%;
             position: relative;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
         }
         .user-message {
             background-color: var(--user-msg-bg);
@@ -169,12 +171,34 @@
             font-size: 0.85rem;
             display: flex;
             flex-direction: row;
-            align-items: center;
+            align-items: flex-start; /* 改為頂部對齊，讓多行文本時布局更合理 */
             justify-content: center;
             gap: 8px;
+            padding: 0 10px; /* 添加水平填充，確保內容不會太靠近邊緣 */
+            width: fit-content; /* 根據內容調整寬度 */
+            max-width: 95%; /* 確保不會超出父容器 */
+            margin-left: auto; /* 水平居中 */
+            margin-right: auto; /* 水平居中 */
+            min-height: 24px; /* 設定最小高度，避免內容過小時被壓縮 */
         }
+        
+        /* 為系統消息添加紅框效果樣式 */
+        .system-message.error-message {
+            border: 1px solid #ff4757;
+            border-radius: 5px;
+            padding: 5px 10px;
+            background-color: rgba(255, 71, 87, 0.05);
+        }
+        
         .system-content {
             display: inline-block;
+            padding-left: 5px; /* 添加左側填充，確保首字不會被截斷 */
+            padding-right: 5px; /* 添加右側填充，保持對稱 */
+            box-sizing: border-box; /* 確保padding不會增加元素總寬度 */
+            overflow: visible; /* 確保內容不會被截斷 */
+            word-break: break-word; /* 確保長單詞會斷行 */
+            white-space: pre-wrap; /* 保留換行符 */
+            text-align: left; /* 保持文字左對齊 */
         }
         .system-time {
             font-size: 0.75rem;
@@ -591,6 +615,12 @@
         .fade-in {
             animation: fadeIn 0.3s ease forwards;
         }
+        
+        .message-content {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
@@ -819,6 +849,8 @@
                         newContentDiv.className = 'message-content';
                         newContentDiv.id = 'stream-content';
                         newContentDiv.innerHTML = '';
+                        // 確保保留換行和空格
+                        newContentDiv.style.whiteSpace = 'pre-wrap';
                         
                         // 創建時間顯示元素
                         const newTimeDiv = document.createElement('div');
@@ -831,9 +863,6 @@
                         
                         // 添加到聊天框
                         chatContainer.appendChild(newStreamContainer);
-                        
-                        // 顯示打字指示器
-                        showTypingIndicator();
                         
                         // 滾動到底部
                         scrollToBottom();
@@ -860,7 +889,8 @@
                             const newContentDiv = document.createElement('div');
                             newContentDiv.className = 'message-content';
                             newContentDiv.id = 'stream-content';
-                            newContentDiv.innerHTML = formatMessage(message.content);
+                            // 確保保留換行和空格
+                            newContentDiv.style.whiteSpace = 'pre-wrap';
                             
                             // 創建時間顯示元素
                             const newTimeDiv = document.createElement('div');
@@ -873,10 +903,18 @@
                             
                             // 添加到聊天框
                             chatContainer.appendChild(newStreamContainer);
+                            
+                            // 添加當前字符內容
+                            if (message.content) {
+                                const formattedContent = formatMessage(message.content);
+                                newContentDiv.innerHTML = formattedContent;
+                            }
                         } else {
-                            // 添加新的內容
-                            const formattedContent = formatMessage(message.content);
-                            streamContent.innerHTML += formattedContent;
+                            // 添加新的內容，保留原始格式
+                            if (message.content) {
+                                const formattedContent = formatMessage(message.content);
+                                streamContent.innerHTML += formattedContent;
+                            }
                         }
                         
                         // 滾動到底部
@@ -1068,10 +1106,11 @@
         
         function isRecentMessage(content) {
             return recentMessages.some(msg => {
-                // 移除HTML標籤進行比較
+                // 簡單移除HTML標籤進行比較，不做其他處理
                 const plainMsg = msg.replace(/<[^>]*>/g, '');
                 const plainContent = content.replace(/<[^>]*>/g, '');
-                return plainMsg.trim() === plainContent.trim();
+                // 不對內容進行裁剪或過濾，保留原始內容的特性
+                return plainMsg === plainContent;
             });
         }
         
@@ -1098,8 +1137,8 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}-message`;
             
-            // 處理可能的Markdown格式並移除開頭和結尾的空白行
-            content = formatMessage(content).trim();
+            // 保持原始格式，只進行必要的HTML轉義
+            content = formatMessage(content);
             
             // 獲取當前時間
             const currentTime = getCurrentTime();
@@ -1108,6 +1147,9 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
             contentDiv.innerHTML = content;
+            
+            // 添加CSS樣式保留換行和空格
+            contentDiv.style.whiteSpace = 'pre-wrap';
             
             // 創建時間顯示元素
             const timeDiv = document.createElement('div');
@@ -1135,14 +1177,33 @@
         }
         
         // 添加系統消息
-        function addSystemMessage(content) {
+        function addSystemMessage(content, isError = false) {
+            // 調試輸出，用於檢查內容
+            console.log('添加系統消息:', content, '是否為錯誤:', isError);
+            
             const messageDiv = document.createElement('div');
             messageDiv.className = 'system-message';
+            
+            // 如果是錯誤消息，添加錯誤樣式
+            if (isError || (content && (
+                content.includes('抱歉') || 
+                content.includes('無法') ||
+                content.includes('找不到') || 
+                content.includes('錯誤')
+            ))) {
+                messageDiv.classList.add('error-message');
+            }
             
             // 創建內容元素
             const contentSpan = document.createElement('span');
             contentSpan.className = 'system-content';
-            contentSpan.textContent = content;
+            
+            // 只進行必要的HTML轉義，保留原始格式
+            const formattedContent = formatMessage(content);
+            
+            // 設置內容
+            contentSpan.innerHTML = formattedContent;
+            contentSpan.style.whiteSpace = 'pre-wrap';
             
             // 獲取當前時間
             const currentTime = getCurrentTime();
@@ -1157,6 +1218,10 @@
             messageDiv.appendChild(timeSpan);
             
             chatContainer.appendChild(messageDiv);
+            
+            // 調試輸出，用於確認渲染後的內容
+            console.log('系統消息渲染結果:', messageDiv.outerHTML);
+            
             chatContainer.scrollTop = chatContainer.scrollHeight;
             
             // 添加到最近消息列表
@@ -1391,7 +1456,7 @@
         
         // 處理地理位置數據
         function handleGeoData(geoData) {
-            // 格式化顯示地理位置解析結果
+            // 格式化顯示地理位置解析結果，保留完整格式
             let geoMessage = '已確認您想去的地方：';
             let hasLocation = false;
             
@@ -1502,7 +1567,7 @@
                     break;
                 case 'error':
                     // 錯誤消息
-                    addSystemMessage(`抱歉，發生錯誤: ${message}`);
+                    addSystemMessage(`抱歉，發生錯誤: ${message}`, true);
                     break;
                 default:
                     // 其他階段消息
@@ -1521,28 +1586,19 @@
         function formatMessage(content) {
             if (!content) return '';
             
-            // 移除首尾多餘空行
-            content = content.replace(/^\s*[\r\n]+/g, '').replace(/[\r\n]+\s*$/g, '');
-            
-            // 處理連續的換行符（將多個換行符變成最多兩個）
-            content = content.replace(/[\r\n]{3,}/g, '\n\n');
-            
-            // 處理換行符
-            let formatted = content.replace(/\n/g, '<br>');
-            
-            // 處理連續空格
-            formatted = formatted.replace(/ {2}/g, '&nbsp;&nbsp;');
-            
-            // 處理特殊字符
-            formatted = formatted
+            // 只做最基本的HTML特殊字符轉換，保留原始內容格式
+            let formatted = content
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
-                
-            // 恢復<br>標籤
-            formatted = formatted.replace(/&lt;br&gt;/g, '<br>');
+            
+            // 處理換行符，轉換為<br>標籤，確保所有換行都被正確顯示
+            formatted = formatted.replace(/\r\n/g, '<br>').replace(/\n/g, '<br>');
+            
+            // 處理連續空格，保留原始格式
+            formatted = formatted.replace(/ {2}/g, '&nbsp;&nbsp;');
             
             return formatted;
         }

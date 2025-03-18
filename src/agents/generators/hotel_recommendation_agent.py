@@ -55,9 +55,12 @@ class HotelRecommendationAgent(BaseAgent):
         message_content.append(f"用戶需求: {query}\n\n")
 
         # 添加旅館資料
-        if hotel_details:
+        if hotel_details["message"]:
             message_content.append("旅館資料:\n")
             message_content.append(f"{hotel_details}\n")
+        else:
+            message_content.append("旅館資料:")
+            message_content.append("無旅館資料\n")
 
         return "".join(message_content)
 
@@ -154,8 +157,9 @@ class HotelRecommendationAgent(BaseAgent):
 1. 使用純文本，完全不使用任何特殊符號或格式標記
 2. 設施列表使用逗號分隔，不使用列表格式
 3. 參考回覆範例，可自行發揮，但必須依據旅館資料和用戶需求真實描述，不能虛構
-4. 最多只提供2間旅館建議，若不是那麼符合，可只提供一間最相近，並且要誠實告知建議調整搜索條件。
+4. 最多只提供2間旅館建議，若不是那麼符合，只提供一間最相近，並且要誠實告知建議調整搜索條件。
 5. 地址只輸出中文地址。
+6. 不提供
 
 回覆格式範例
 你好！根據你的需求，我推薦以下幾間旅館:
@@ -278,7 +282,7 @@ class HotelRecommendationAgent(BaseAgent):
             except Exception as e2:
                 self.logger.error(f"發送錯誤通知也失敗: {e2}")
 
-            return f"很抱歉，生成旅館推薦時發生錯誤: {e}"
+            return f" 很抱歉，生成旅館推薦時發生錯誤: {e}"
 
 
 # 創建旅館推薦生成Agent實例

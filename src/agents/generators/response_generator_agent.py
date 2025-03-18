@@ -63,7 +63,7 @@ class ResponseGeneratorAgent(BaseAgent):
             return {
                 **state,
                 "response": response,
-                "text_response": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件，或提供更多細節，如位置、日期和預算。",
+                "text_response": " 抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件，或提供更多細節，如位置、日期和預算。",
                 "clean_hotels": [],
                 "clean_plans": [],
                 "hotel_details": [],

@@ -1,0 +1,73 @@
+graph TD
+    A[開始<br>Start] --> B[Parse Router<br>解析路由]
+
+    B -->|條件路由| C1[Budget Parser<br>預算解析器]
+    B -->|條件路由| C2[Date Parser<br>日期解析器]
+    B -->|條件路由| C3[Geo Parser<br>地理解析器]
+    B -->|條件路由| C4[Food Req Parser<br>餐飲需求解析器]
+    B -->|條件路由| C5[Guest Parser<br>旅客解析器]
+    B -->|條件路由| C6[Hotel Type Parser<br>旅館類型解析器]
+    B -->|條件路由| C7[Keyword Parser<br>關鍵字解析器]
+    B -->|條件路由| C8[Special Req Parser<br>特殊需求解析器]
+    B -->|條件路由| C9[Supply Parser<br>設施需求解析器]
+
+    C1 --> D[Search Router<br>搜索路由]
+    C2 --> D
+    C3 --> D
+    C4 --> D
+    C5 --> D
+    C6 --> D
+    C7 --> D
+    C8 --> D
+    C9 --> D
+
+    C1 -->|若有錯誤| E[Error Handler<br>錯誤處理器]
+    C2 -->|若有錯誤| E
+    C3 -->|若有錯誤| E
+    C4 -->|若有錯誤| E
+    C5 -->|若有錯誤| E
+    C6 -->|若有錯誤| E
+    C7 -->|若有錯誤| E
+    C8 -->|若有錯誤| E
+    C9 -->|若有錯誤| E
+
+    D -->|條件路由| F1[Hotel Search<br>旅館搜索]
+    D -->|條件路由| F2[Hotel Search Fuzzy<br>旅館模糊搜索]
+    D -->|條件路由| F3[Hotel Search Plan<br>旅館方案搜索]
+
+    F1 -->|完成或需重試| G[Search Results Aggregator<br>搜索結果匯總]
+    F2 -->|完成或需重試| G
+    F3 -->|完成或需重試| G
+
+    F1 -->|需重試| D
+    F2 -->|需重試| D
+    F3 -->|需重試| D
+
+    G --> H[LLM Agent<br>語言模型代理]
+    H --> I[Response Generator<br>回應生成器]
+    I --> J[Hotel Recommendation<br>旅館推薦]
+
+    E --> Z[結束<br>End]
+    D -->|若有錯誤| I
+
+    subgraph Node Wrapper 錯誤處理
+        C1 -->|異常| X[跳過節點並記錄錯誤<br>Skip Node and Log Error]
+        F1 -->|異常| X
+        H -->|異常| X
+        X -->|返回當前狀態| Next[下一個節點<br>Next Node]
+    end
+
+    J --> Z
+
+    classDef parser fill:#FFD1DC,stroke:#A31F34,stroke-width:2px,color:#A31F34;
+    classDef search fill:#B3E5FC,stroke:#0288D1,stroke-width:2px,color:#0288D1;
+    classDef generator fill:#C8E6C9,stroke:#2E7D32,stroke-width:2px,color:#2E7D32;
+    classDef router fill:#FFECB3,stroke:#F57C00,stroke-width:2px,color:#F57C00;
+    classDef error fill:#FFCDD2,stroke:#C62828,stroke-width:2px,color:#C62828;
+
+
+    class C1,C2,C3,C4,C5,C6,C7,C8,C9 parser;
+    class F1,F2,F3 search;
+    class H,I,J generator;
+    class B,D router;
+    class E,X error;

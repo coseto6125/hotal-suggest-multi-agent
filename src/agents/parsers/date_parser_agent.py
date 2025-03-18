@@ -36,7 +36,7 @@ class DateParserAgent(BaseAgent):
         ]
         self.err_result = {
             "error": "日期解析失敗",
-            "err_msg": "不好意思，似乎無法確認您的入住日期，麻煩您加上月/日再提供一次。",
+            "err_msg": " 不好意思，似乎無法確認您的入住日期，麻煩您加上月/日再提供一次。",
         }
 
         # 初始化spaCy模型
