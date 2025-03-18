@@ -103,9 +103,6 @@ class HotelRecommendationWorkflow:
         # 初始化生成 agents
         self._init_generator_agents()
 
-        # 初始化繁簡體轉換工具
-        self.opencc = OpenCC("s2twp")
-
         # 創建工作流圖
         self.workflow = self._create_workflow()
         logger.info("工作流初始化完成")
@@ -480,7 +477,7 @@ class HotelRecommendationWorkflow:
                 detail_str = "，".join([f"{k}: {v}" for k, v in details.items()])
                 message += f"（{detail_str}）"
             else:
-                message += "無解析到相關數據"
+                message += "（無解析到相關數據）"
 
             # 發送進度通知到前端
             await ws_manager.broadcast_chat_message(
@@ -811,11 +808,11 @@ class HotelRecommendationWorkflow:
             logger.error(f"發送POI地圖圖片失敗: {e}")
 
 
-# 創建工作流實例（單例模式）
-hotel_recommendation_workflow = HotelRecommendationWorkflow()
+# 初始化繁簡體轉換工具，可以共用的資源
+opencc_converter = OpenCC("s2twp")
 
 
-# 添加 run_workflow 函數，作為 hotel_recommendation_workflow.run 的包裝函數
+# 添加 run_workflow 函數，每次都創建新的工作流實例
 async def run_workflow(data: dict | str, progress_callback=None) -> dict:
     """
     運行工作流的包裝函數
@@ -832,6 +829,9 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
     返回:
         dict: 工作流運行結果
     """
+    # 每次創建新的工作流實例，避免狀態污染
+    workflow_instance = HotelRecommendationWorkflow()
+
     # 處理不同類型的輸入
     if isinstance(data, str):
         user_query = data
@@ -848,7 +848,7 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
         return {"error": "查詢內容為空", "text_response": "請提供查詢內容"}
 
     # 轉換為繁體中文
-    query = hotel_recommendation_workflow.opencc.convert(user_query)
+    query = opencc_converter.convert(user_query)
     logger.info(f"處理用戶查詢: {query}, 會話ID: {session_id}")
 
     # 如果有進度回調，報告開始解析查詢
@@ -862,7 +862,7 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
     try:
         # 使用超時機制運行工作流
         result = await asyncio.wait_for(
-            hotel_recommendation_workflow.run(query=query, session_id=session_id, user_query=user_query),
+            workflow_instance.run(query=query, session_id=session_id, user_query=user_query),
             timeout=WORKFLOW_TIMEOUT,
         )
 
