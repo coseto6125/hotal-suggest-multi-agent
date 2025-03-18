@@ -17,6 +17,7 @@ from src.agents.generators.response_generator_agent import ResponseGeneratorAgen
 from src.agents.search.hotel_search_agent import HotelSearchAgent
 from src.agents.search.hotel_search_fuzzy_agent import HotelSearchFuzzyAgent
 from src.agents.search.hotel_search_plan_agent import HotelSearchPlanAgent
+from src.cache.geo_cache import geo_cache
 from src.graph.merge_func import MergeFunc
 from src.web.websocket import ws_manager
 
@@ -102,9 +103,6 @@ class HotelRecommendationWorkflow:
 
         # 初始化生成 agents
         self._init_generator_agents()
-
-        # 初始化繁簡體轉換工具
-        self.opencc = OpenCC("s2twp")
 
         # 創建工作流圖
         self.workflow = self._create_workflow()
@@ -354,12 +352,32 @@ class HotelRecommendationWorkflow:
                     # 處理搜索節點
                     searcher_info = self._get_searcher_info(agent_name, result)
                     if searcher_info["type"] == "旅館推薦生成":
-                        # TODO: 處理旅館推薦生成,POI資訊預備
-                        result["llm_recommend_poi"] = ["雀客藏居台北南港", "雀客藏居台北陽明山"]
-                        if result.get("llm_recommend_poi"):
-                            logger.info(f"開始處理POI資訊預備，推薦POI: {result['llm_recommend_poi']}")
+                        # result["llm_recommend_hotel"] = ["雀客藏居台北南港", "雀客藏居台北陽明山"]
+                        # 確保 merged_state 也有 llm_recommend_hotel
+                        merged_state["llm_recommend_hotel"] += result["llm_recommend_hotel"]
+
+                        if merged_state.get("llm_recommend_hotel"):
+                            merged_state["llm_recommend_hotel"] = merged_state["llm_recommend_hotel"][:3]
+                            logger.info(f"開始處理POI資訊預備，推薦POI: {merged_state['llm_recommend_hotel']}")
                             # 使用POISearchAgent處理POI搜索
                             from src.agents.search.poi_search_agent import poi_search_agent
+
+                            # 確認狀態中是否有旅館搜尋結果
+                            hotel_results = (
+                                merged_state.get("hotel_search_results", [])
+                                or merged_state.get("fuzzy_search_results", [])
+                                or merged_state.get("plan_search_results", [])
+                            )
+
+                            logger.info(
+                                f"旅館搜尋結果狀態: hotel_search_results={bool(merged_state.get('hotel_search_results'))}, "
+                                f"fuzzy_search_results={bool(merged_state.get('fuzzy_search_results'))}, "
+                                f"plan_search_results={bool(merged_state.get('plan_search_results'))}"
+                            )
+
+                            if not hotel_results:
+                                logger.warning("沒有任何旅館搜尋結果，無法進行 POI 搜索")
+                                return merged_state
 
                             poi_result = await poi_search_agent.process(merged_state)
 
@@ -386,7 +404,20 @@ class HotelRecommendationWorkflow:
                     ):
                         self._process_search_results(searcher_info["results_key"], result, merged_state, agent_name)
 
-                logger.debug(f"節點執行結束: {agent_name}")
+                # 只為旅館推薦節點記錄執行結束的日誌
+                if agent_name == "hotelrecommendationagent":
+                    logger.debug(f"節點執行結束: {agent_name}")
+                    # 發送旅館推薦完成通知
+                    if state.get("session_id"):
+                        await ws_manager.broadcast_chat_message(
+                            state["session_id"],
+                            {
+                                "role": "system",
+                                "content": "已完成旅館推薦",
+                                "timestamp": asyncio.get_event_loop().time(),
+                            },
+                        )
+
                 return merged_state
 
             except Exception as e:
@@ -414,7 +445,7 @@ class HotelRecommendationWorkflow:
                 searcher_info["type"] = "旅館方案搜索"
                 searcher_info["results_key"] = "plan_search_results"
             case "responsegeneratoragent":
-                searcher_info["type"] = "回應生成"
+                searcher_info["type"] = "綜合搜索"
             case "hotelrecommendationagent":
                 searcher_info["type"] = "旅館推薦生成"
 
@@ -432,7 +463,19 @@ class HotelRecommendationWorkflow:
 
             # 地點信息
             if result.get("county_ids"):
-                details["地點"] = f"縣市ID: {result['county_ids']}"
+                county_names = await geo_cache.get_county_by_id(result["county_ids"])
+                details["地點"] = f"縣市: {', '.join(i.get('name') for i in county_names)}"
+                if d_id := result.get("district_ids"):
+                    from tkinter import _flatten
+
+                    district_data = _flatten([k.get("districts") for k in county_names])
+                    district_names = [
+                        next((i.get("name") for i in district_data if i.get("id") == k), None) for k in d_id
+                    ]
+                    if district_names:
+                        details["地點"] += f", 地區: {', '.join(filter(None, district_names))}"
+            elif d_id := result.get("district_ids"):
+                details["地點"] += f", 地區: {', '.join(geo_cache._districts)}"
 
             # 人數信息
             if result.get("adults"):
@@ -442,8 +485,16 @@ class HotelRecommendationWorkflow:
                 details["人數"] = guests
 
             # 預算信息
-            if "lowest_price" in result and result["lowest_price"] > 0:
-                details["預算"] = f"{result['lowest_price']} ~ {result.get('highest_price', result['lowest_price'])}"
+
+            if result.get("lowest_price") or result.get("highest_price"):
+                lower = result.get("lowest_price")
+                higher = result.get("highest_price")
+                if lower and higher:
+                    details["預算"] = f"{lower} ~ {higher}"
+                elif lower:
+                    details["預算"] = f"至少 {lower}"
+                elif higher:
+                    details["預算"] = f"至多 {higher}"
 
             # 搜索結果信息
             for search_type, key in [
@@ -459,6 +510,8 @@ class HotelRecommendationWorkflow:
             if details:
                 detail_str = "，".join([f"{k}: {v}" for k, v in details.items()])
                 message += f"（{detail_str}）"
+            else:
+                message += "（無解析到相關數據）"
 
             # 發送進度通知到前端
             await ws_manager.broadcast_chat_message(
@@ -508,7 +561,7 @@ class HotelRecommendationWorkflow:
             state["text_response"] = state["err_msg"]
         else:
             logger.error(f"工作流執行異常: {error_msg}")
-            state["text_response"] = f"很抱歉，處理您的查詢時發生錯誤: {error_msg}"
+            state["text_response"] = f" 很抱歉，處理您的查詢時發生錯誤: {error_msg}"
 
         # 確保有基本的回應結構
         if "response" not in state:
@@ -752,7 +805,7 @@ class HotelRecommendationWorkflow:
         except Exception as e:
             logger.error(f"工作流執行失敗: {e}")
             # 返回錯誤信息
-            return {"error": str(e), "text_response": "很抱歉，處理您的查詢時發生錯誤。請稍後再試。"}
+            return {"error": str(e), "text_response": " 很抱歉，處理您的查詢時發生錯誤。請稍後再試。"}
 
     async def _send_poi_images(self, session_id: str, surroundings_map_images: list[dict]) -> None:
         """發送POI地圖圖片到前端"""
@@ -789,11 +842,11 @@ class HotelRecommendationWorkflow:
             logger.error(f"發送POI地圖圖片失敗: {e}")
 
 
-# 創建工作流實例（單例模式）
-hotel_recommendation_workflow = HotelRecommendationWorkflow()
+# 初始化繁簡體轉換工具，可以共用的資源
+opencc_converter = OpenCC("s2twp")
 
 
-# 添加 run_workflow 函數，作為 hotel_recommendation_workflow.run 的包裝函數
+# 添加 run_workflow 函數，每次都創建新的工作流實例
 async def run_workflow(data: dict | str, progress_callback=None) -> dict:
     """
     運行工作流的包裝函數
@@ -810,6 +863,9 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
     返回:
         dict: 工作流運行結果
     """
+    # 每次創建新的工作流實例，避免狀態污染
+    workflow_instance = HotelRecommendationWorkflow()
+
     # 處理不同類型的輸入
     if isinstance(data, str):
         user_query = data
@@ -826,7 +882,7 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
         return {"error": "查詢內容為空", "text_response": "請提供查詢內容"}
 
     # 轉換為繁體中文
-    query = hotel_recommendation_workflow.opencc.convert(user_query)
+    query = opencc_converter.convert(user_query)
     logger.info(f"處理用戶查詢: {query}, 會話ID: {session_id}")
 
     # 如果有進度回調，報告開始解析查詢
@@ -840,7 +896,7 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
     try:
         # 使用超時機制運行工作流
         result = await asyncio.wait_for(
-            hotel_recommendation_workflow.run(query=query, session_id=session_id, user_query=user_query),
+            workflow_instance.run(query=query, session_id=session_id, user_query=user_query),
             timeout=WORKFLOW_TIMEOUT,
         )
 
@@ -855,7 +911,7 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
             await progress_callback("error", message=f"處理查詢超時 ({WORKFLOW_TIMEOUT}秒)")
         return {
             "error": f"處理查詢超時 ({WORKFLOW_TIMEOUT}秒)",
-            "text_response": "很抱歉，處理您的查詢花費時間過長，請嘗試更簡單的查詢或稍後再試。",
+            "text_response": " 很抱歉，處理您的查詢花費時間過長，請嘗試更簡單的查詢或稍後再試。",
         }
     except Exception as e:
         logger.error(f"工作流執行失敗: {e}")
@@ -866,5 +922,5 @@ async def run_workflow(data: dict | str, progress_callback=None) -> dict:
             await progress_callback("error", message=str(e))
         return {
             "error": str(e),
-            "text_response": f"很抱歉，處理您的查詢時發生錯誤: {e}",
+            "text_response": f" 很抱歉，處理您的查詢時發生錯誤: {e}",
         }

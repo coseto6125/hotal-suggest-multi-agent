@@ -254,10 +254,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
 
                 elif result.get("error"):
-                    logger.error(f"工作流執行錯誤app: {result['error']}")
-                    await send_chat_message(
-                        session_id, f"處理您的請求時發生錯誤: {result.get('err_msg', '未知錯誤')}", role="system"
-                    )
+                    if "處理查詢超時 (30.0秒)" not in result.get("error"):
+                        await send_chat_message(
+                            session_id, f"處理您的請求時發生錯誤: {result.get('err_msg', '未知錯誤')}", role="system"
+                        )
                 else:
                     # 如果回應狀態不是成功，發送消息
                     if result["response"]["status"] != "success":
@@ -293,7 +293,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     # 發送完整回應
                     logger.info("工作流處理完成")
-                    return
 
             except WebSocketDisconnect:
                 logger.info(f"WebSocket連接斷開: {session_id}")

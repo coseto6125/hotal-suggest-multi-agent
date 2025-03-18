@@ -72,6 +72,8 @@
             border-radius: 18px;
             max-width: 80%;
             position: relative;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
         }
         .user-message {
             background-color: var(--user-msg-bg);
@@ -109,7 +111,7 @@
         }
         .typing-indicator {
             display: none;
-            padding: 10px 15px;
+            padding: 6px 12px;
             background-color: var(--typing-bg);
             border-radius: 18px;
             margin-bottom: 15px;
@@ -118,17 +120,36 @@
             transition: background-color 0.3s ease, color 0.3s ease;
             margin-right: auto;
             border-bottom-left-radius: 5px;
+            position: relative;
+            animation: fadeIn 0.3s ease-in-out;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            min-width: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        .dot {
+        
+        [data-theme="dark"] .typing-indicator {
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .typing-indicator .dot {
             display: inline-block;
-            width: 8px;
-            height: 8px;
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             background-color: var(--typing-dot-color);
             animation: wave 1.3s linear infinite;
-            margin-right: 3px;
+            margin: 0 3px;
+            vertical-align: middle;
             transition: background-color 0.3s ease;
         }
+        
         .dot:nth-child(2) {
             animation-delay: -1.1s;
         }
@@ -150,12 +171,34 @@
             font-size: 0.85rem;
             display: flex;
             flex-direction: row;
-            align-items: center;
+            align-items: flex-start; /* 改為頂部對齊，讓多行文本時布局更合理 */
             justify-content: center;
             gap: 8px;
+            padding: 0 10px; /* 添加水平填充，確保內容不會太靠近邊緣 */
+            width: fit-content; /* 根據內容調整寬度 */
+            max-width: 95%; /* 確保不會超出父容器 */
+            margin-left: auto; /* 水平居中 */
+            margin-right: auto; /* 水平居中 */
+            min-height: 24px; /* 設定最小高度，避免內容過小時被壓縮 */
         }
+        
+        /* 為系統消息添加紅框效果樣式 */
+        .system-message.error-message {
+            border: 1px solid #ff4757;
+            border-radius: 5px;
+            padding: 5px 10px;
+            background-color: rgba(255, 71, 87, 0.05);
+        }
+        
         .system-content {
             display: inline-block;
+            padding-left: 5px; /* 添加左側填充，確保首字不會被截斷 */
+            padding-right: 5px; /* 添加右側填充，保持對稱 */
+            box-sizing: border-box; /* 確保padding不會增加元素總寬度 */
+            overflow: visible; /* 確保內容不會被截斷 */
+            word-break: break-word; /* 確保長單詞會斷行 */
+            white-space: pre-wrap; /* 保留換行符 */
+            text-align: left; /* 保持文字左對齊 */
         }
         .system-time {
             font-size: 0.75rem;
@@ -572,6 +615,12 @@
         .fade-in {
             animation: fadeIn 0.3s ease forwards;
         }
+        
+        .message-content {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
@@ -605,6 +654,7 @@
         // 全局變量
         let sessionId = null;
         let socket = null;
+        let isRecommendationCompleted = false;  // 追踪推薦是否已完成
         
         // DOM元素
         const chatContainer = document.getElementById('chatContainer');
@@ -665,6 +715,13 @@
                 const data = JSON.parse(event.data);
                 console.log('收到消息:', data);  // 調試用
                 
+                // 處理心跳消息 - 心跳消息不應該影響UI
+                if (data.type === "heartbeat" || data.message_type === "heartbeat" || 
+                    (data.type === "ping" || data.message_type === "ping")) {
+                    console.log('收到心跳消息，忽略不處理');
+                    return;
+                }
+                
                 // 處理新的session_id
                 if (data.type === "session_id" && data.data && data.data.session_id) {
                     sessionId = data.data.session_id;
@@ -672,10 +729,43 @@
                     return;
                 }
                 
+                // 如果收到的消息表示已完成，立即隱藏打字指示器
+                if (data.is_complete || 
+                    (data.message_chunk && (
+                        data.message_chunk.includes('已完成旅館推薦') || 
+                        data.message_chunk.includes('抱歉，我找不到') ||
+                        data.message_chunk.includes('已完成旅館') || 
+                        data.message_chunk.includes('已完成飯店') || 
+                        data.message_chunk.includes('完成推薦') || 
+                        data.message_chunk.includes('抱歉') ||
+                        data.message_chunk.includes('不好意思')
+                    )) ||
+                    (data.final_response && (
+                        data.final_response.includes('已完成旅館推薦') || 
+                        data.final_response.includes('抱歉，我找不到') ||
+                        data.final_response.includes('已完成旅館') || 
+                        data.final_response.includes('已完成飯店') || 
+                        data.final_response.includes('完成推薦') || 
+                        data.final_response.includes('抱歉') ||
+                        data.final_response.includes('不好意思')
+                    )) ||
+                    (data.type === "complete" || data.message_type === "complete") ||
+                    (data.status === "complete" || data.status === "completed")) {
+                    
+                    console.log('檢測到完成消息，隱藏打字指示器並清理聊天容器');
+                    hideTypingIndicator();
+                    
+                    // 標記推薦已完成
+                    isRecommendationCompleted = true;
+                    
+                    // 清理聊天容器中的空元素和臨時元素
+                    cleanUpChatContainer();
+                }
+                
                 // 處理錯誤消息
                 if (data.error) {
                     // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    hideTypingIndicator();
                     // 顯示錯誤消息
                     addSystemMessage(`抱歉，發生錯誤: ${data.error}`);
                     return;
@@ -689,13 +779,15 @@
                 if (data.surroundings_map_images && data.surroundings_map_images.length > 0) {
                     console.log('收到周邊地標地圖圖片:', data.surroundings_map_images);
                     addPOIMapImages(data.surroundings_map_images, "旅館周邊地標地圖");
+                    // 收到地圖圖片時隱藏打字指示器，表示已完成查找
+                    hideTypingIndicator();
                 }
                 
                 // 處理 POI 圖片類型消息
                 if (data.type === "poi_images" || data.content_type === "poi_images") {
                     console.log('收到 POI 圖片消息:', data);
                     // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    hideTypingIndicator();
                     
                     // 添加 POI 地圖圖片
                     if (data.images && data.images.length > 0) {
@@ -726,7 +818,7 @@
                     if (message.content_type === "poi_images" || message.role === "poi_images") {
                         console.log('收到聊天消息中的 POI 圖片:', message);
                         // 隱藏打字指示器
-                        typingIndicator.style.display = 'none';
+                        hideTypingIndicator();
                         
                         // 添加 POI 地圖圖片
                         if (message.images && message.images.length > 0) {
@@ -757,6 +849,8 @@
                         newContentDiv.className = 'message-content';
                         newContentDiv.id = 'stream-content';
                         newContentDiv.innerHTML = '';
+                        // 確保保留換行和空格
+                        newContentDiv.style.whiteSpace = 'pre-wrap';
                         
                         // 創建時間顯示元素
                         const newTimeDiv = document.createElement('div');
@@ -770,9 +864,6 @@
                         // 添加到聊天框
                         chatContainer.appendChild(newStreamContainer);
                         
-                        // 顯示打字指示器
-                        typingIndicator.style.display = 'block';
-                        
                         // 滾動到底部
                         scrollToBottom();
                         
@@ -785,7 +876,7 @@
                         const streamContent = document.getElementById('stream-content');
                         
                         // 隱藏打字指示器，因為已經開始接收回應
-                        typingIndicator.style.display = 'none';
+                        hideTypingIndicator();
                         
                         // 如果沒有流式回應容器，創建一個新的
                         if (!streamContainer || !streamContent) {
@@ -798,7 +889,8 @@
                             const newContentDiv = document.createElement('div');
                             newContentDiv.className = 'message-content';
                             newContentDiv.id = 'stream-content';
-                            newContentDiv.innerHTML = formatMessage(message.content);
+                            // 確保保留換行和空格
+                            newContentDiv.style.whiteSpace = 'pre-wrap';
                             
                             // 創建時間顯示元素
                             const newTimeDiv = document.createElement('div');
@@ -811,10 +903,18 @@
                             
                             // 添加到聊天框
                             chatContainer.appendChild(newStreamContainer);
+                            
+                            // 添加當前字符內容
+                            if (message.content) {
+                                const formattedContent = formatMessage(message.content);
+                                newContentDiv.innerHTML = formattedContent;
+                            }
                         } else {
-                            // 添加新的內容
-                            const formattedContent = formatMessage(message.content);
-                            streamContent.innerHTML += formattedContent;
+                            // 添加新的內容，保留原始格式
+                            if (message.content) {
+                                const formattedContent = formatMessage(message.content);
+                                streamContent.innerHTML += formattedContent;
+                            }
                         }
                         
                         // 滾動到底部
@@ -824,7 +924,7 @@
                     
                     if (message.role === "assistant_stream_end") {
                         // 隱藏打字指示器
-                        typingIndicator.style.display = 'none';
+                        hideTypingIndicator();
                         
                         // 獲取流式回應容器
                         const streamContainer = document.getElementById('stream-response-container');
@@ -851,7 +951,7 @@
                     }
                     
                     // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    hideTypingIndicator();
                     
                     messageContent = message.content;
                     
@@ -898,7 +998,7 @@
                 // 處理 response 類型消息
                 if (data.type === "response") {
                     // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    hideTypingIndicator();
                     
                     const responseData = data.data;
                     
@@ -920,6 +1020,14 @@
                         
                         // 添加消息
                         addMessage(messageContent, 'assistant');
+                        
+                        // 如果消息包含特定關鍵字，確保隱藏打字指示器
+                        if (messageContent.includes('已完成') || 
+                            messageContent.includes('抱歉') || 
+                            messageContent.includes('不好意思') || 
+                            messageContent.includes('找不到')) {
+                            hideTypingIndicator();
+                        }
                     }
                     
                     return;
@@ -927,36 +1035,47 @@
                 
                 // 處理漸進式回應
                 if (!data.is_complete) {
-                    // 顯示打字指示器
-                    typingIndicator.style.display = 'block';
+                    // 如果推薦已完成，不再顯示打字指示器
+                    if (isRecommendationCompleted) {
+                        console.log('推薦已完成，不再顯示打字指示器');
+                        return;
+                    }
                     
-                    // 處理漸進式回應
-                    if (data.stage) {
-                        // 如果有階段信息
-                        if (data.stage === 'geo_parse' && data.geo_data) {
-                            // 如果是地理位置解析階段且有地理數據
+                    // 在顯示打字指示器前，先確認是否真的需要顯示
+                    // 只有在確實需要顯示進度的情況下才顯示打字指示器
+                    if (data.stage || data.geo_data || data.message_chunk || 
+                        (data.type === "progress" || data.message_type === "progress")) {
+                        // 顯示打字指示器，不再傳入階段參數
+                        showTypingIndicator();
+                        
+                        // 處理漸進式回應
+                        if (data.stage) {
+                            // 如果有階段信息
+                            if (data.stage === 'geo_parse' && data.geo_data) {
+                                // 如果是地理位置解析階段且有地理數據
+                                handleGeoData(data.geo_data);
+                                // 隱藏打字指示器，因為已經顯示了地理位置信息
+                                hideTypingIndicator();
+                            } else if (data.message_chunk) {
+                                // 如果有消息內容
+                                handleProgressiveResponse(data.stage, data.message_chunk);
+                            } else {
+                                // 只有階段信息，沒有消息內容
+                                handleStageProgress(data.stage);
+                            }
+                        } else if (data.geo_data) {
+                            // 如果只有地理位置數據，立即顯示
                             handleGeoData(data.geo_data);
                             // 隱藏打字指示器，因為已經顯示了地理位置信息
-                            typingIndicator.style.display = 'none';
+                            hideTypingIndicator();
                         } else if (data.message_chunk) {
-                            // 如果有消息內容
-                            handleProgressiveResponse(data.stage, data.message_chunk);
-                        } else {
-                            // 只有階段信息，沒有消息內容
-                            handleStageProgress(data.stage);
+                            // 添加初步回應
+                            addMessage(data.message_chunk, 'assistant');
                         }
-                    } else if (data.geo_data) {
-                        // 如果只有地理位置數據，立即顯示
-                        handleGeoData(data.geo_data);
-                        // 隱藏打字指示器，因為已經顯示了地理位置信息
-                        typingIndicator.style.display = 'none';
-                    } else if (data.message_chunk) {
-                        // 添加初步回應
-                        addMessage(data.message_chunk, 'assistant');
                     }
                 } else {
-                    // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    // 完成時隱藏打字指示器
+                    hideTypingIndicator();
                     
                     // 如果是最終回應
                     if (data.final_response) {
@@ -987,10 +1106,11 @@
         
         function isRecentMessage(content) {
             return recentMessages.some(msg => {
-                // 移除HTML標籤進行比較
+                // 簡單移除HTML標籤進行比較，不做其他處理
                 const plainMsg = msg.replace(/<[^>]*>/g, '');
                 const plainContent = content.replace(/<[^>]*>/g, '');
-                return plainMsg.trim() === plainContent.trim();
+                // 不對內容進行裁剪或過濾，保留原始內容的特性
+                return plainMsg === plainContent;
             });
         }
         
@@ -1017,7 +1137,7 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}-message`;
             
-            // 處理可能的Markdown格式
+            // 保持原始格式，只進行必要的HTML轉義
             content = formatMessage(content);
             
             // 獲取當前時間
@@ -1027,6 +1147,9 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
             contentDiv.innerHTML = content;
+            
+            // 添加CSS樣式保留換行和空格
+            contentDiv.style.whiteSpace = 'pre-wrap';
             
             // 創建時間顯示元素
             const timeDiv = document.createElement('div');
@@ -1042,17 +1165,45 @@
             
             // 滾動到底部
             scrollToBottom();
+            
+            // 如果是助手消息且包含特定關鍵字，確保隱藏打字指示器
+            if (role === 'assistant' && 
+                (content.includes('已完成') || 
+                 content.includes('抱歉') || 
+                 content.includes('抱') || 
+                 content.includes('找不到'))) {
+                hideTypingIndicator();
+            }
         }
         
         // 添加系統消息
-        function addSystemMessage(content) {
+        function addSystemMessage(content, isError = false) {
+            // 調試輸出，用於檢查內容
+            console.log('添加系統消息:', content, '是否為錯誤:', isError);
+            
             const messageDiv = document.createElement('div');
             messageDiv.className = 'system-message';
+            
+            // 如果是錯誤消息，添加錯誤樣式
+            if (isError || (content && (
+                content.includes('抱歉') || 
+                content.includes('無法') ||
+                content.includes('找不到') || 
+                content.includes('錯誤')
+            ))) {
+                messageDiv.classList.add('error-message');
+            }
             
             // 創建內容元素
             const contentSpan = document.createElement('span');
             contentSpan.className = 'system-content';
-            contentSpan.textContent = content;
+            
+            // 只進行必要的HTML轉義，保留原始格式
+            const formattedContent = formatMessage(content);
+            
+            // 設置內容
+            contentSpan.innerHTML = formattedContent;
+            contentSpan.style.whiteSpace = 'pre-wrap';
             
             // 獲取當前時間
             const currentTime = getCurrentTime();
@@ -1067,12 +1218,29 @@
             messageDiv.appendChild(timeSpan);
             
             chatContainer.appendChild(messageDiv);
+            
+            // 調試輸出，用於確認渲染後的內容
+            console.log('系統消息渲染結果:', messageDiv.outerHTML);
+            
             chatContainer.scrollTop = chatContainer.scrollHeight;
             
             // 添加到最近消息列表
             recentMessages.push(content);
             if (recentMessages.length > 10) {
                 recentMessages.shift();
+            }
+            
+            // 檢查系統消息是否包含完成信息
+            if (content && (
+                content.includes('已完成旅館推薦') || 
+                content.includes('已完成飯店推薦') ||
+                content.includes('完成推薦') ||
+                content.includes('已完成')
+            )) {
+                console.log('添加系統消息時檢測到完成提示，標記推薦已完成');
+                isRecommendationCompleted = true;
+                // 確保打字指示器隱藏
+                hideTypingIndicator();
             }
         }
         
@@ -1288,7 +1456,7 @@
         
         // 處理地理位置數據
         function handleGeoData(geoData) {
-            // 格式化顯示地理位置解析結果
+            // 格式化顯示地理位置解析結果，保留完整格式
             let geoMessage = '已確認您想去的地方：';
             let hasLocation = false;
             
@@ -1399,7 +1567,7 @@
                     break;
                 case 'error':
                     // 錯誤消息
-                    addSystemMessage(`抱歉，發生錯誤: ${message}`);
+                    addSystemMessage(`抱歉，發生錯誤: ${message}`, true);
                     break;
                 default:
                     // 其他階段消息
@@ -1418,22 +1586,19 @@
         function formatMessage(content) {
             if (!content) return '';
             
-            // 處理換行符
-            let formatted = content.replace(/\n/g, '<br>');
-            
-            // 處理連續空格
-            formatted = formatted.replace(/ {2}/g, '&nbsp;&nbsp;');
-            
-            // 處理特殊字符
-            formatted = formatted
+            // 只做最基本的HTML特殊字符轉換，保留原始內容格式
+            let formatted = content
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
-                
-            // 恢復<br>標籤
-            formatted = formatted.replace(/&lt;br&gt;/g, '<br>');
+            
+            // 處理換行符，轉換為<br>標籤，確保所有換行都被正確顯示
+            formatted = formatted.replace(/\r\n/g, '<br>').replace(/\n/g, '<br>');
+            
+            // 處理連續空格，保留原始格式
+            formatted = formatted.replace(/ {2}/g, '&nbsp;&nbsp;');
             
             return formatted;
         }
@@ -1448,14 +1613,17 @@
                 return;
             }
             
-            // 添加用戶消息到聊天框
-            addMessage(message, 'user');
-            
             // 清空輸入框
             messageInput.value = '';
             
+            // 重置完成狀態變量，因為發送新消息
+            isRecommendationCompleted = false;
+            
+            // 添加用戶消息到聊天框
+            addMessage(message, 'user');
+            
             // 顯示打字指示器
-            typingIndicator.style.display = 'block';
+            showTypingIndicator();
             
             // 發送消息到服務器
             if (socket && socket.readyState === WebSocket.OPEN) {
@@ -1476,7 +1644,7 @@
                         }));
                     } else {
                         addSystemMessage('無法連接到服務器，請刷新頁面重試。');
-                        typingIndicator.style.display = 'none';
+                        hideTypingIndicator();
                     }
                 }, 1000);
             }
@@ -1823,6 +1991,96 @@
             };
             
             document.addEventListener('keydown', escHandler);
+        }
+
+        // 清理聊天容器中的空元素和臨時元素
+        function cleanUpChatContainer() {
+            // 移除空消息框
+            const emptyBoxes = chatContainer.querySelectorAll('.message:empty');
+            emptyBoxes.forEach(box => {
+                if (box.parentNode) {
+                    box.parentNode.removeChild(box);
+                }
+            });
+            
+            // 移除內容為空的消息框
+            const contentEmptyBoxes = chatContainer.querySelectorAll('.message-content:empty');
+            contentEmptyBoxes.forEach(content => {
+                const parent = content.closest('.message');
+                if (parent && parent.parentNode) {
+                    parent.parentNode.removeChild(parent);
+                }
+            });
+            
+            // 移除殘留的打字指示器
+            const indicators = chatContainer.querySelectorAll('.typing-indicator');
+            indicators.forEach(indicator => {
+                if (indicator.id !== 'typingIndicator' && indicator.parentNode) {
+                    indicator.parentNode.removeChild(indicator);
+                }
+            });
+            
+            // 檢查系統消息中是否包含完成旅館推薦的字樣
+            const systemMessages = chatContainer.querySelectorAll('.system-message');
+            systemMessages.forEach(message => {
+                const messageText = message.innerText || message.textContent;
+                if (messageText && (
+                    messageText.includes('已完成旅館推薦') || 
+                    messageText.includes('已完成飯店推薦') ||
+                    messageText.includes('完成推薦') ||
+                    messageText.includes('已完成')
+                )) {
+                    console.log('在系統消息中檢測到完成提示，標記推薦已完成');
+                    isRecommendationCompleted = true;
+                }
+            });
+            
+            // 確保打字指示器隱藏
+            if (typingIndicator) {
+                typingIndicator.style.display = 'none';
+            }
+        }
+        
+        // 處理打字指示器
+        function hideTypingIndicator() {
+            typingIndicator.style.display = 'none';
+            
+            // 清理聊天容器
+            cleanUpChatContainer();
+        }
+
+        function showTypingIndicator(stage) {
+            // 從聊天容器中移除，以便重新插入到最新消息後面
+            if (typingIndicator.parentNode) {
+                typingIndicator.parentNode.removeChild(typingIndicator);
+            }
+            
+            // 重設打字指示器內容
+            resetTypingIndicator();
+            
+            // 將打字指示器插入到聊天容器的最後一條消息之後
+            chatContainer.appendChild(typingIndicator);
+            
+            // 顯示打字指示器
+            typingIndicator.style.display = 'block';
+            
+            // 滾動到底部，確保指示器可見
+            scrollToBottom();
+        }
+        
+        // 重設打字指示器內容
+        function resetTypingIndicator() {
+            // 清除現有內容
+            while (typingIndicator.firstChild) {
+                typingIndicator.removeChild(typingIndicator.firstChild);
+            }
+            
+            // 添加動畫點
+            for (let i = 0; i < 3; i++) {
+                const dot = document.createElement('span');
+                dot.className = 'dot';
+                typingIndicator.appendChild(dot);
+            }
         }
     </script>
 </body>

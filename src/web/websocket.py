@@ -61,7 +61,7 @@ class WebSocketManager:
 
         try:
             await self.active_connections[session_id].send_json({"type": "chat_message", "data": message})
-            logger.debug(f"{session_id[:5]}聊天消息已發送: {str(message)[:20]}")
+            logger.debug(f"聊天消息已發送[{session_id[:5]}]: {message.get('content')[:20]}")
         except Exception as e:
             logger.error(f"發送聊天消息失敗: {e}")
             # 連接可能已斷開，移除連接

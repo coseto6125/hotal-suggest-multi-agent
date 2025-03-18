@@ -94,6 +94,7 @@ class LLMAgent(BaseAgent):
 
     async def parse_user_query(self, query: str, geo_entities: dict[str, Any] = None) -> dict[str, Any]:
         """
+        TODO: 暫時沒使用到
         解析用戶查詢，提取關鍵參數
 
         Args:

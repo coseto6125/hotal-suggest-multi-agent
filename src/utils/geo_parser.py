@@ -92,6 +92,78 @@ class GeoParser:
 
         logger.info(f"已建立 {len(self._county_patterns)} 個縣市和 {len(self._district_patterns)} 個鄉鎮區的匹配模式")
 
+    def _process_compound_location(self, text: str) -> list[tuple[str, str]]:
+        """
+        處理複合地名，例如"臺北南港"、"屏東恆春"等
+
+        Args:
+            text: 輸入文本
+
+        Returns:
+            列表，包含(縣市名稱, 鄉鎮區名稱)元組
+        """
+        compound_locations = []
+
+        # 嘗試從文本中推斷複合地名
+        for i in range(len(text)):
+            # 考慮最長可能的地名（通常不超過8個字）
+            for j in range(i + 3, min(i + 9, len(text) + 1)):
+                potential_loc = text[i:j]
+
+                # 檢查是否包含縣市名
+                for county in self._taiwan_counties:
+                    county_name = county.get("name", "")
+                    if not county_name or len(county_name) < 2:
+                        continue
+
+                    # 處理台/臺互換
+                    county_variations = [
+                        county_name,
+                        county_name.replace("台", "臺") if "台" in county_name else county_name.replace("臺", "台"),
+                    ]
+
+                    for county_var in county_variations:
+                        if county_var in potential_loc:
+                            # 移除縣市名稱，檢查剩餘部分是否為鄉鎮區
+                            remaining = potential_loc.replace(county_var, "")
+                            if remaining and len(remaining) >= 2:
+                                # 嘗試匹配鄉鎮區
+                                for district in self._taiwan_districts:
+                                    district_name = district.get("name", "")
+                                    if not district_name:
+                                        continue
+
+                                    # 處理台/臺互換
+                                    district_variations = [
+                                        district_name,
+                                        district_name.replace("台", "臺")
+                                        if "台" in district_name
+                                        else district_name.replace("臺", "台"),
+                                    ]
+
+                                    for district_var in district_variations:
+                                        # 檢查區名是否與剩餘部分匹配
+                                        if (
+                                            district_var == remaining
+                                            or district_var in remaining
+                                            or remaining in district_var
+                                        ):
+                                            logger.debug(
+                                                f"推斷複合地名: {potential_loc} -> {county_name}, {district_name}"
+                                            )
+                                            compound_locations.append((county_name, district_name))
+                                            break
+
+                                    # 如果找到匹配，跳出內層循環
+                                    if any(d[1] == district_name for d in compound_locations):
+                                        break
+
+                            # 如果找到匹配，跳出當前潛在地名的處理
+                            if any(c[0] == county_name for c in compound_locations):
+                                break
+
+        return compound_locations
+
     async def preload_model(self) -> None:
         """預先載入 spaCy 模型，可在應用啟動時調用"""
         if not self._model_loaded:
@@ -103,6 +175,34 @@ class GeoParser:
             await self.initialize()
 
         result = {"counties": [], "districts": [], "destination": {"county": None, "district": None}}
+
+        # 首先嘗試處理複合地名
+        compound_locations = self._process_compound_location(text)
+
+        # 如果找到複合地名，直接使用
+        if compound_locations:
+            county_name, district_name = compound_locations[0]
+
+            # 獲取縣市ID
+            county = geo_cache.get_county_by_name(county_name)
+            if county and county.get("id"):
+                county_id = county.get("id")
+                result["counties"].append({"id": county_id, "name": county_name})
+                result["destination"]["county"] = county_id
+                logger.debug(f"從複合地名獲取縣市: {county_name} (ID: {county_id})")
+
+            # 獲取鄉鎮區ID
+            district = geo_cache.get_district_by_name(district_name)
+            if district and district.get("id"):
+                district_id = district.get("id")
+                result["districts"].append({"id": district_id, "name": district_name})
+                result["destination"]["district"] = district_id
+                logger.debug(f"從複合地名獲取鄉鎮區: {district_name} (ID: {district_id})")
+
+            # 如果已經成功處理複合地名，直接返回結果
+            if result["destination"]["county"] and result["destination"]["district"]:
+                logger.info(f"成功解析複合地名: {county_name}{district_name}")
+                return result
 
         # 使用 spaCy 進行命名實體識別
         doc = self._nlp(text)
@@ -125,6 +225,38 @@ class GeoParser:
         for pattern in self._district_patterns:
             matches = pattern.findall(text)
             districts.extend(matches)
+
+        # 增強識別：處理複合地名（例如"臺北南港"，"屏東恆春"等）
+        # 用於存儲已識別的複合地名
+        compound_locations = []
+
+        # 嘗試將文本中可能的地名組合分離出來
+        for i in range(len(text)):
+            # 考慮最長可能的地名（例如最多4個字）
+            for j in range(i + 2, min(i + 6, len(text) + 1)):
+                potential_loc = text[i:j]
+
+                # 檢查是否包含縣市名
+                for county_name in sorted(
+                    [c.get("name", "") for c in self._taiwan_counties if c.get("name")], key=len, reverse=True
+                ):
+                    if county_name in potential_loc and len(county_name) >= 2:
+                        # 移除縣市名稱，檢查剩餘部分是否為鄉鎮區
+                        remaining = potential_loc.replace(county_name, "")
+                        if remaining:
+                            for district_name in sorted(
+                                [d.get("name", "") for d in self._taiwan_districts if d.get("name")],
+                                key=len,
+                                reverse=True,
+                            ):
+                                if district_name == remaining or district_name in remaining:
+                                    logger.debug(
+                                        f"識別到複合地名: {potential_loc} (縣市: {county_name}, 鄉鎮區: {district_name})"
+                                    )
+                                    counties.append(county_name)
+                                    districts.append(district_name)
+                                    compound_locations.append((county_name, district_name))
+                                    break
 
         # 合併 spaCy 識別的地點和正則表達式匹配的結果
         for loc in locations:
@@ -167,11 +299,26 @@ class GeoParser:
         result["counties"] = county_ids
         result["districts"] = district_ids
 
-        # 設置目的地
-        if county_ids:
-            result["destination"]["county"] = county_ids[0]["id"]
-        if district_ids:
-            result["destination"]["district"] = district_ids[0]["id"]
+        # 設置目的地 - 優先使用複合地名
+        if compound_locations:
+            # 使用第一個識別到的複合地名
+            county_name, district_name = compound_locations[0]
+
+            # 設置縣市
+            county = geo_cache.get_county_by_name(county_name)
+            if county and county.get("id"):
+                result["destination"]["county"] = county.get("id")
+
+            # 設置鄉鎮區
+            district = geo_cache.get_district_by_name(district_name)
+            if district and district.get("id"):
+                result["destination"]["district"] = district.get("id")
+        else:
+            # 如果沒有複合地名，使用原來的邏輯
+            if county_ids:
+                result["destination"]["county"] = county_ids[0]["id"]
+            if district_ids:
+                result["destination"]["district"] = district_ids[0]["id"]
 
         return result
 
