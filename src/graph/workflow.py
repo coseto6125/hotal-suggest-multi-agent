@@ -351,13 +351,13 @@ class HotelRecommendationWorkflow:
                     # 處理搜索節點
                     searcher_info = self._get_searcher_info(agent_name, result)
                     if searcher_info["type"] == "旅館推薦生成":
-                        # result["llm_recommend_poi"] = ["雀客藏居台北南港", "雀客藏居台北陽明山"]
-                        # 確保 merged_state 也有 llm_recommend_poi
-                        merged_state["llm_recommend_poi"] += result["llm_recommend_poi"]
+                        # result["llm_recommend_hotel"] = ["雀客藏居台北南港", "雀客藏居台北陽明山"]
+                        # 確保 merged_state 也有 llm_recommend_hotel
+                        merged_state["llm_recommend_hotel"] += result["llm_recommend_hotel"]
 
-                        if merged_state.get("llm_recommend_poi"):
-                            merged_state["llm_recommend_poi"] = merged_state["llm_recommend_poi"][:3]
-                            logger.info(f"開始處理POI資訊預備，推薦POI: {merged_state['llm_recommend_poi']}")
+                        if merged_state.get("llm_recommend_hotel"):
+                            merged_state["llm_recommend_hotel"] = merged_state["llm_recommend_hotel"][:3]
+                            logger.info(f"開始處理POI資訊預備，推薦POI: {merged_state['llm_recommend_hotel']}")
                             # 使用POISearchAgent處理POI搜索
                             from src.agents.search.poi_search_agent import poi_search_agent
 

@@ -24,12 +24,12 @@ class POISearchAgent(BaseAgent):
         logger.info("開始處理周邊地標搜索請求")
 
         try:
-            # 檢查是否有LLM推薦的POI
-            # state["llm_recommend_poi"] = ["雀客藏居台北南港","雀客藏居台北陽明山"] # ! mock data
-            llm_recommend_poi = state.get("llm_recommend_poi", [])
-            logger.info(f"接收到的 llm_recommend_poi: {llm_recommend_poi}")
+            # 檢查是否有LLM推薦的Hotel
+            # state["llm_recommend_hotel"] = ["雀客藏居台北南港","雀客藏居台北陽明山"] # ! mock data
+            llm_recommend_hotel = state.get("llm_recommend_hotel", [])
+            logger.info(f"接收到的 llm_recommend_hotel: {llm_recommend_hotel}")
 
-            if not llm_recommend_poi:
+            if not llm_recommend_hotel:
                 logger.warning("沒有LLM推薦的POI，無法搜索周邊地標")
                 return {
                     "poi_results": [],
@@ -60,7 +60,7 @@ class POISearchAgent(BaseAgent):
                 logger.info(f"開始搜索旅館 {hotel_name} 周邊地標")
 
                 # 為每個旅館搜索推薦的POI
-                hotel_poi_results = await self._search_pois_for_hotel(hotel_name, hotel_id, llm_recommend_poi)
+                hotel_poi_results = await self._search_pois_for_hotel(hotel_name, hotel_id, llm_recommend_hotel)
                 if hotel_poi_results:
                     poi_results.append(hotel_poi_results)
 
