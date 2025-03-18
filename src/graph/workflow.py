@@ -357,7 +357,7 @@ class HotelRecommendationWorkflow:
                         # result["llm_recommend_poi"] = ["雀客藏居台北南港", "雀客藏居台北陽明山"]
                         # 確保 merged_state 也有 llm_recommend_poi
                         merged_state["llm_recommend_poi"] += result["llm_recommend_poi"]
-                        
+
                         if merged_state.get("llm_recommend_poi"):
                             merged_state["llm_recommend_poi"] = merged_state["llm_recommend_poi"][:3]
                             logger.info(f"開始處理POI資訊預備，推薦POI: {merged_state['llm_recommend_poi']}")
@@ -434,7 +434,7 @@ class HotelRecommendationWorkflow:
                 searcher_info["type"] = "旅館方案搜索"
                 searcher_info["results_key"] = "plan_search_results"
             case "responsegeneratoragent":
-                searcher_info["type"] = "回應生成"
+                searcher_info["type"] = "綜合搜索"
             case "hotelrecommendationagent":
                 searcher_info["type"] = "旅館推薦生成"
 
@@ -479,6 +479,8 @@ class HotelRecommendationWorkflow:
             if details:
                 detail_str = "，".join([f"{k}: {v}" for k, v in details.items()])
                 message += f"（{detail_str}）"
+            else:
+                message += "無解析到相關數據"
 
             # 發送進度通知到前端
             await ws_manager.broadcast_chat_message(

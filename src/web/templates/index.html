@@ -109,7 +109,7 @@
         }
         .typing-indicator {
             display: none;
-            padding: 10px 15px;
+            padding: 6px 12px;
             background-color: var(--typing-bg);
             border-radius: 18px;
             margin-bottom: 15px;
@@ -118,17 +118,36 @@
             transition: background-color 0.3s ease, color 0.3s ease;
             margin-right: auto;
             border-bottom-left-radius: 5px;
+            position: relative;
+            animation: fadeIn 0.3s ease-in-out;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            min-width: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        .dot {
+        
+        [data-theme="dark"] .typing-indicator {
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .typing-indicator .dot {
             display: inline-block;
-            width: 8px;
-            height: 8px;
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             background-color: var(--typing-dot-color);
             animation: wave 1.3s linear infinite;
-            margin-right: 3px;
+            margin: 0 3px;
+            vertical-align: middle;
             transition: background-color 0.3s ease;
         }
+        
         .dot:nth-child(2) {
             animation-delay: -1.1s;
         }
@@ -605,6 +624,7 @@
         // 全局變量
         let sessionId = null;
         let socket = null;
+        let isRecommendationCompleted = false;  // 追踪推薦是否已完成
         
         // DOM元素
         const chatContainer = document.getElementById('chatContainer');
@@ -665,6 +685,13 @@
                 const data = JSON.parse(event.data);
                 console.log('收到消息:', data);  // 調試用
                 
+                // 處理心跳消息 - 心跳消息不應該影響UI
+                if (data.type === "heartbeat" || data.message_type === "heartbeat" || 
+                    (data.type === "ping" || data.message_type === "ping")) {
+                    console.log('收到心跳消息，忽略不處理');
+                    return;
+                }
+                
                 // 處理新的session_id
                 if (data.type === "session_id" && data.data && data.data.session_id) {
                     sessionId = data.data.session_id;
@@ -672,10 +699,43 @@
                     return;
                 }
                 
+                // 如果收到的消息表示已完成，立即隱藏打字指示器
+                if (data.is_complete || 
+                    (data.message_chunk && (
+                        data.message_chunk.includes('已完成旅館推薦') || 
+                        data.message_chunk.includes('抱歉，我找不到') ||
+                        data.message_chunk.includes('已完成旅館') || 
+                        data.message_chunk.includes('已完成飯店') || 
+                        data.message_chunk.includes('完成推薦') || 
+                        data.message_chunk.includes('抱歉') ||
+                        data.message_chunk.includes('不好意思')
+                    )) ||
+                    (data.final_response && (
+                        data.final_response.includes('已完成旅館推薦') || 
+                        data.final_response.includes('抱歉，我找不到') ||
+                        data.final_response.includes('已完成旅館') || 
+                        data.final_response.includes('已完成飯店') || 
+                        data.final_response.includes('完成推薦') || 
+                        data.final_response.includes('抱歉') ||
+                        data.final_response.includes('不好意思')
+                    )) ||
+                    (data.type === "complete" || data.message_type === "complete") ||
+                    (data.status === "complete" || data.status === "completed")) {
+                    
+                    console.log('檢測到完成消息，隱藏打字指示器並清理聊天容器');
+                    hideTypingIndicator();
+                    
+                    // 標記推薦已完成
+                    isRecommendationCompleted = true;
+                    
+                    // 清理聊天容器中的空元素和臨時元素
+                    cleanUpChatContainer();
+                }
+                
                 // 處理錯誤消息
                 if (data.error) {
                     // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    hideTypingIndicator();
                     // 顯示錯誤消息
                     addSystemMessage(`抱歉，發生錯誤: ${data.error}`);
                     return;
@@ -689,13 +749,15 @@
                 if (data.surroundings_map_images && data.surroundings_map_images.length > 0) {
                     console.log('收到周邊地標地圖圖片:', data.surroundings_map_images);
                     addPOIMapImages(data.surroundings_map_images, "旅館周邊地標地圖");
+                    // 收到地圖圖片時隱藏打字指示器，表示已完成查找
+                    hideTypingIndicator();
                 }
                 
                 // 處理 POI 圖片類型消息
                 if (data.type === "poi_images" || data.content_type === "poi_images") {
                     console.log('收到 POI 圖片消息:', data);
                     // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    hideTypingIndicator();
                     
                     // 添加 POI 地圖圖片
                     if (data.images && data.images.length > 0) {
@@ -726,7 +788,7 @@
                     if (message.content_type === "poi_images" || message.role === "poi_images") {
                         console.log('收到聊天消息中的 POI 圖片:', message);
                         // 隱藏打字指示器
-                        typingIndicator.style.display = 'none';
+                        hideTypingIndicator();
                         
                         // 添加 POI 地圖圖片
                         if (message.images && message.images.length > 0) {
@@ -771,7 +833,7 @@
                         chatContainer.appendChild(newStreamContainer);
                         
                         // 顯示打字指示器
-                        typingIndicator.style.display = 'block';
+                        showTypingIndicator();
                         
                         // 滾動到底部
                         scrollToBottom();
@@ -785,7 +847,7 @@
                         const streamContent = document.getElementById('stream-content');
                         
                         // 隱藏打字指示器，因為已經開始接收回應
-                        typingIndicator.style.display = 'none';
+                        hideTypingIndicator();
                         
                         // 如果沒有流式回應容器，創建一個新的
                         if (!streamContainer || !streamContent) {
@@ -824,7 +886,7 @@
                     
                     if (message.role === "assistant_stream_end") {
                         // 隱藏打字指示器
-                        typingIndicator.style.display = 'none';
+                        hideTypingIndicator();
                         
                         // 獲取流式回應容器
                         const streamContainer = document.getElementById('stream-response-container');
@@ -851,7 +913,7 @@
                     }
                     
                     // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    hideTypingIndicator();
                     
                     messageContent = message.content;
                     
@@ -898,7 +960,7 @@
                 // 處理 response 類型消息
                 if (data.type === "response") {
                     // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    hideTypingIndicator();
                     
                     const responseData = data.data;
                     
@@ -920,6 +982,14 @@
                         
                         // 添加消息
                         addMessage(messageContent, 'assistant');
+                        
+                        // 如果消息包含特定關鍵字，確保隱藏打字指示器
+                        if (messageContent.includes('已完成') || 
+                            messageContent.includes('抱歉') || 
+                            messageContent.includes('不好意思') || 
+                            messageContent.includes('找不到')) {
+                            hideTypingIndicator();
+                        }
                     }
                     
                     return;
@@ -927,36 +997,47 @@
                 
                 // 處理漸進式回應
                 if (!data.is_complete) {
-                    // 顯示打字指示器
-                    typingIndicator.style.display = 'block';
+                    // 如果推薦已完成，不再顯示打字指示器
+                    if (isRecommendationCompleted) {
+                        console.log('推薦已完成，不再顯示打字指示器');
+                        return;
+                    }
                     
-                    // 處理漸進式回應
-                    if (data.stage) {
-                        // 如果有階段信息
-                        if (data.stage === 'geo_parse' && data.geo_data) {
-                            // 如果是地理位置解析階段且有地理數據
+                    // 在顯示打字指示器前，先確認是否真的需要顯示
+                    // 只有在確實需要顯示進度的情況下才顯示打字指示器
+                    if (data.stage || data.geo_data || data.message_chunk || 
+                        (data.type === "progress" || data.message_type === "progress")) {
+                        // 顯示打字指示器，不再傳入階段參數
+                        showTypingIndicator();
+                        
+                        // 處理漸進式回應
+                        if (data.stage) {
+                            // 如果有階段信息
+                            if (data.stage === 'geo_parse' && data.geo_data) {
+                                // 如果是地理位置解析階段且有地理數據
+                                handleGeoData(data.geo_data);
+                                // 隱藏打字指示器，因為已經顯示了地理位置信息
+                                hideTypingIndicator();
+                            } else if (data.message_chunk) {
+                                // 如果有消息內容
+                                handleProgressiveResponse(data.stage, data.message_chunk);
+                            } else {
+                                // 只有階段信息，沒有消息內容
+                                handleStageProgress(data.stage);
+                            }
+                        } else if (data.geo_data) {
+                            // 如果只有地理位置數據，立即顯示
                             handleGeoData(data.geo_data);
                             // 隱藏打字指示器，因為已經顯示了地理位置信息
-                            typingIndicator.style.display = 'none';
+                            hideTypingIndicator();
                         } else if (data.message_chunk) {
-                            // 如果有消息內容
-                            handleProgressiveResponse(data.stage, data.message_chunk);
-                        } else {
-                            // 只有階段信息，沒有消息內容
-                            handleStageProgress(data.stage);
+                            // 添加初步回應
+                            addMessage(data.message_chunk, 'assistant');
                         }
-                    } else if (data.geo_data) {
-                        // 如果只有地理位置數據，立即顯示
-                        handleGeoData(data.geo_data);
-                        // 隱藏打字指示器，因為已經顯示了地理位置信息
-                        typingIndicator.style.display = 'none';
-                    } else if (data.message_chunk) {
-                        // 添加初步回應
-                        addMessage(data.message_chunk, 'assistant');
                     }
                 } else {
-                    // 隱藏打字指示器
-                    typingIndicator.style.display = 'none';
+                    // 完成時隱藏打字指示器
+                    hideTypingIndicator();
                     
                     // 如果是最終回應
                     if (data.final_response) {
@@ -1017,8 +1098,8 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}-message`;
             
-            // 處理可能的Markdown格式
-            content = formatMessage(content);
+            // 處理可能的Markdown格式並移除開頭和結尾的空白行
+            content = formatMessage(content).trim();
             
             // 獲取當前時間
             const currentTime = getCurrentTime();
@@ -1042,6 +1123,15 @@
             
             // 滾動到底部
             scrollToBottom();
+            
+            // 如果是助手消息且包含特定關鍵字，確保隱藏打字指示器
+            if (role === 'assistant' && 
+                (content.includes('已完成') || 
+                 content.includes('抱歉') || 
+                 content.includes('抱') || 
+                 content.includes('找不到'))) {
+                hideTypingIndicator();
+            }
         }
         
         // 添加系統消息
@@ -1073,6 +1163,19 @@
             recentMessages.push(content);
             if (recentMessages.length > 10) {
                 recentMessages.shift();
+            }
+            
+            // 檢查系統消息是否包含完成信息
+            if (content && (
+                content.includes('已完成旅館推薦') || 
+                content.includes('已完成飯店推薦') ||
+                content.includes('完成推薦') ||
+                content.includes('已完成')
+            )) {
+                console.log('添加系統消息時檢測到完成提示，標記推薦已完成');
+                isRecommendationCompleted = true;
+                // 確保打字指示器隱藏
+                hideTypingIndicator();
             }
         }
         
@@ -1418,6 +1521,12 @@
         function formatMessage(content) {
             if (!content) return '';
             
+            // 移除首尾多餘空行
+            content = content.replace(/^\s*[\r\n]+/g, '').replace(/[\r\n]+\s*$/g, '');
+            
+            // 處理連續的換行符（將多個換行符變成最多兩個）
+            content = content.replace(/[\r\n]{3,}/g, '\n\n');
+            
             // 處理換行符
             let formatted = content.replace(/\n/g, '<br>');
             
@@ -1448,14 +1557,17 @@
                 return;
             }
             
-            // 添加用戶消息到聊天框
-            addMessage(message, 'user');
-            
             // 清空輸入框
             messageInput.value = '';
             
+            // 重置完成狀態變量，因為發送新消息
+            isRecommendationCompleted = false;
+            
+            // 添加用戶消息到聊天框
+            addMessage(message, 'user');
+            
             // 顯示打字指示器
-            typingIndicator.style.display = 'block';
+            showTypingIndicator();
             
             // 發送消息到服務器
             if (socket && socket.readyState === WebSocket.OPEN) {
@@ -1476,7 +1588,7 @@
                         }));
                     } else {
                         addSystemMessage('無法連接到服務器，請刷新頁面重試。');
-                        typingIndicator.style.display = 'none';
+                        hideTypingIndicator();
                     }
                 }, 1000);
             }
@@ -1823,6 +1935,96 @@
             };
             
             document.addEventListener('keydown', escHandler);
+        }
+
+        // 清理聊天容器中的空元素和臨時元素
+        function cleanUpChatContainer() {
+            // 移除空消息框
+            const emptyBoxes = chatContainer.querySelectorAll('.message:empty');
+            emptyBoxes.forEach(box => {
+                if (box.parentNode) {
+                    box.parentNode.removeChild(box);
+                }
+            });
+            
+            // 移除內容為空的消息框
+            const contentEmptyBoxes = chatContainer.querySelectorAll('.message-content:empty');
+            contentEmptyBoxes.forEach(content => {
+                const parent = content.closest('.message');
+                if (parent && parent.parentNode) {
+                    parent.parentNode.removeChild(parent);
+                }
+            });
+            
+            // 移除殘留的打字指示器
+            const indicators = chatContainer.querySelectorAll('.typing-indicator');
+            indicators.forEach(indicator => {
+                if (indicator.id !== 'typingIndicator' && indicator.parentNode) {
+                    indicator.parentNode.removeChild(indicator);
+                }
+            });
+            
+            // 檢查系統消息中是否包含完成旅館推薦的字樣
+            const systemMessages = chatContainer.querySelectorAll('.system-message');
+            systemMessages.forEach(message => {
+                const messageText = message.innerText || message.textContent;
+                if (messageText && (
+                    messageText.includes('已完成旅館推薦') || 
+                    messageText.includes('已完成飯店推薦') ||
+                    messageText.includes('完成推薦') ||
+                    messageText.includes('已完成')
+                )) {
+                    console.log('在系統消息中檢測到完成提示，標記推薦已完成');
+                    isRecommendationCompleted = true;
+                }
+            });
+            
+            // 確保打字指示器隱藏
+            if (typingIndicator) {
+                typingIndicator.style.display = 'none';
+            }
+        }
+        
+        // 處理打字指示器
+        function hideTypingIndicator() {
+            typingIndicator.style.display = 'none';
+            
+            // 清理聊天容器
+            cleanUpChatContainer();
+        }
+
+        function showTypingIndicator(stage) {
+            // 從聊天容器中移除，以便重新插入到最新消息後面
+            if (typingIndicator.parentNode) {
+                typingIndicator.parentNode.removeChild(typingIndicator);
+            }
+            
+            // 重設打字指示器內容
+            resetTypingIndicator();
+            
+            // 將打字指示器插入到聊天容器的最後一條消息之後
+            chatContainer.appendChild(typingIndicator);
+            
+            // 顯示打字指示器
+            typingIndicator.style.display = 'block';
+            
+            // 滾動到底部，確保指示器可見
+            scrollToBottom();
+        }
+        
+        // 重設打字指示器內容
+        function resetTypingIndicator() {
+            // 清除現有內容
+            while (typingIndicator.firstChild) {
+                typingIndicator.removeChild(typingIndicator.firstChild);
+            }
+            
+            // 添加動畫點
+            for (let i = 0; i < 3; i++) {
+                const dot = document.createElement('span');
+                dot.className = 'dot';
+                typingIndicator.appendChild(dot);
+            }
         }
     </script>
 </body>

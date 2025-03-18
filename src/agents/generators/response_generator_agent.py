@@ -47,7 +47,7 @@ class ResponseGeneratorAgent(BaseAgent):
         if not all_hotels and not plan_search_results:
             self.logger.warning("沒有找到符合條件的旅館")
             # 僅設置狀態，不直接發送消息給前端（因為 LLM 已經會處理回應）
-            response = {"status": "no_results", "message": "抱歉，我找不到符合您要求的旅館。請嘗試使用不同的搜索條件。"}
+            response = {"status": "no_results", "message": ""}
 
             # 不再向前端發送消息
             # if session_id:

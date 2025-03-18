@@ -293,7 +293,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     # 發送完整回應
                     logger.info("工作流處理完成")
-                    return
 
             except WebSocketDisconnect:
                 logger.info(f"WebSocket連接斷開: {session_id}")
