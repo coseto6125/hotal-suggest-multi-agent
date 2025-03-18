@@ -25,11 +25,17 @@ class POISearchAgent(BaseAgent):
 
         try:
             # 檢查是否有LLM推薦的POI
-            state["llm_recommend_poi"] = ["雀客藏居台北南港","雀客藏居台北陽明山"] #test
+            # state["llm_recommend_poi"] = ["雀客藏居台北南港","雀客藏居台北陽明山"] #test
             llm_recommend_poi = state.get("llm_recommend_poi", [])
+            logger.info(f"接收到的 llm_recommend_poi: {llm_recommend_poi}")
+
             if not llm_recommend_poi:
                 logger.warning("沒有LLM推薦的POI，無法搜索周邊地標")
-                return {"poi_results": [], "message": "沒有LLM推薦的POI，無法搜索周邊地標"}
+                return {
+                    "poi_results": [],
+                    "surroundings_map_images": [],
+                    "message": "沒有LLM推薦的POI，無法搜索周邊地標",
+                }
 
             # 檢查是否有旅館信息
             hotels = (
@@ -37,6 +43,8 @@ class POISearchAgent(BaseAgent):
                 or state.get("fuzzy_search_results", [])
                 or state.get("plan_search_results", [])
             )
+            logger.info(f"找到 {len(hotels)} 間旅館進行周邊搜索")
+
             if not hotels:
                 logger.warning("沒有旅館信息，無法搜索周邊地標")
                 return {"poi_results": [], "message": "沒有旅館信息，無法搜索周邊地標"}

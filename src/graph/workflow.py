@@ -354,12 +354,32 @@ class HotelRecommendationWorkflow:
                     # 處理搜索節點
                     searcher_info = self._get_searcher_info(agent_name, result)
                     if searcher_info["type"] == "旅館推薦生成":
-                        # TODO: 處理旅館推薦生成,POI資訊預備
-                        result["llm_recommend_poi"] = ["雀客藏居台北南港","雀客藏居台北陽明山"]
-                        if result.get("llm_recommend_poi"):
-                            logger.info(f"開始處理POI資訊預備，推薦POI: {result['llm_recommend_poi']}")
+                        # result["llm_recommend_poi"] = ["雀客藏居台北南港", "雀客藏居台北陽明山"]
+                        # 確保 merged_state 也有 llm_recommend_poi
+                        merged_state["llm_recommend_poi"] += result["llm_recommend_poi"]
+                        
+                        if merged_state.get("llm_recommend_poi"):
+                            merged_state["llm_recommend_poi"] = merged_state["llm_recommend_poi"][:3]
+                            logger.info(f"開始處理POI資訊預備，推薦POI: {merged_state['llm_recommend_poi']}")
                             # 使用POISearchAgent處理POI搜索
                             from src.agents.search.poi_search_agent import poi_search_agent
+
+                            # 確認狀態中是否有旅館搜尋結果
+                            hotel_results = (
+                                merged_state.get("hotel_search_results", [])
+                                or merged_state.get("fuzzy_search_results", [])
+                                or merged_state.get("plan_search_results", [])
+                            )
+
+                            logger.info(
+                                f"旅館搜尋結果狀態: hotel_search_results={bool(merged_state.get('hotel_search_results'))}, "
+                                f"fuzzy_search_results={bool(merged_state.get('fuzzy_search_results'))}, "
+                                f"plan_search_results={bool(merged_state.get('plan_search_results'))}"
+                            )
+
+                            if not hotel_results:
+                                logger.warning("沒有任何旅館搜尋結果，無法進行 POI 搜索")
+                                return merged_state
 
                             poi_result = await poi_search_agent.process(merged_state)
 
