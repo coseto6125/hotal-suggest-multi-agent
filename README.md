@@ -2,6 +2,9 @@
 
 基於LangGraph的旅館推薦多Agent系統，為用戶提供旅遊住宿與周邊探索的整合解決方案。
 
+[![查看Youtube Demo影片](video-thumbnail.png)](https://youtu.be/HhIShq96qHA)
+
+
 ## 系統架構
 
 本系統採用LangGraph框架實現多Agent協作，主要包含以下組件：
