@@ -28,8 +28,80 @@
 
 系統工作流程如下：
 
-```
-用戶查詢 -> 查詢解析(多個專門解析Agent並行處理) -> 旅館搜索 -> 初步回應 -> 周邊地標搜索 -> 最終回應
+```mermaid
+graph TD
+    A[開始<br>Start] --> B[Parse Router<br>解析路由]
+
+    B -->|條件路由| C1[Budget Parser<br>預算解析器]
+    B -->|條件路由| C2[Date Parser<br>日期解析器]
+    B -->|條件路由| C3[Geo Parser<br>地理解析器]
+    B -->|條件路由| C4[Food Req Parser<br>餐飲需求解析器]
+    B -->|條件路由| C5[Guest Parser<br>旅客解析器]
+    B -->|條件路由| C6[Hotel Type Parser<br>旅館類型解析器]
+    B -->|條件路由| C7[Keyword Parser<br>關鍵字解析器]
+    B -->|條件路由| C8[Special Req Parser<br>特殊需求解析器]
+    B -->|條件路由| C9[Supply Parser<br>設施需求解析器]
+
+    C1 --> D[Search Router<br>搜索路由]
+    C2 --> D
+    C3 --> D
+    C4 --> D
+    C5 --> D
+    C6 --> D
+    C7 --> D
+    C8 --> D
+    C9 --> D
+
+    C1 -->|若有錯誤| E[Error Handler<br>錯誤處理器]
+    C2 -->|若有錯誤| E
+    C3 -->|若有錯誤| E
+    C4 -->|若有錯誤| E
+    C5 -->|若有錯誤| E
+    C6 -->|若有錯誤| E
+    C7 -->|若有錯誤| E
+    C8 -->|若有錯誤| E
+    C9 -->|若有錯誤| E
+
+    D -->|條件路由| F1[Hotel Search<br>旅館搜索]
+    D -->|條件路由| F2[Hotel Search Fuzzy<br>旅館模糊搜索]
+    D -->|條件路由| F3[Hotel Search Plan<br>旅館方案搜索]
+
+    F1 -->|完成或需重試| G[Search Results Aggregator<br>搜索結果匯總]
+    F2 -->|完成或需重試| G
+    F3 -->|完成或需重試| G
+
+    F1 -->|需重試| D
+    F2 -->|需重試| D
+    F3 -->|需重試| D
+
+    G --> H[LLM Agent<br>語言模型代理]
+    H --> I[Response Generator<br>回應生成器]
+    I --> J[Hotel Recommendation<br>旅館推薦]
+
+    E --> Z[結束<br>End]
+    D -->|若有錯誤| I
+
+    subgraph Node Wrapper 錯誤處理
+        C1 -->|異常| X[跳過節點並記錄錯誤<br>Skip Node and Log Error]
+        F1 -->|異常| X
+        H -->|異常| X
+        X -->|返回當前狀態| Next[下一個節點<br>Next Node]
+    end
+
+    J --> Z
+
+    classDef parser fill:#FFD1DC,stroke:#A31F34,stroke-width:2px,color:#A31F34;
+    classDef search fill:#B3E5FC,stroke:#0288D1,stroke-width:2px,color:#0288D1;
+    classDef generator fill:#C8E6C9,stroke:#2E7D32,stroke-width:2px,color:#2E7D32;
+    classDef router fill:#FFECB3,stroke:#F57C00,stroke-width:2px,color:#F57C00;
+    classDef error fill:#FFCDD2,stroke:#C62828,stroke-width:2px,color:#C62828;
+
+
+    class C1,C2,C3,C4,C5,C6,C7,C8,C9 parser;
+    class F1,F2,F3 search;
+    class H,I,J generator;
+    class B,D router;
+    class E,X error;
 ```
 
 ## 特點
@@ -38,12 +110,12 @@
 - **並行處理**：多個Agent並行工作，提高效率。
 - **漸進式回應**：先提供初步結果，再補充詳細信息。
 - **容錯機制**：處理各種異常情況，確保系統穩定性。
-- **用戶友好**：提供直觀的Web界面，支持實時對話。
+- **用戶友好**：提供直觀的Web界面，支持即時對話。
 - **地理資料快取**：預加載台灣縣市鄉鎮資料，大幅提升查詢解析速度。
 
 ## 技術棧
 
-- **Python 3.13**：基礎編程語言
+- **Python 3.12**：基礎編程語言
 - **LangGraph**：多Agent協作框架
 - **FastAPI**：Web服務框架
 - **WebSocket**：實時通信
@@ -51,14 +123,15 @@
 - **aiohttp**：異步HTTP客戶端
 - **loguru**：日誌記錄
 - **orjson**：高性能JSON處理
-- **Redis/SQLite**：地理資料快取存儲
+- **OpenCC**：繁簡轉換
 
 ## 安裝與運行
 
 ### 環境要求
 
-- Python 3.13+
+- Python 3.12+
 - 可選：OpenAI API密鑰或本地Ollama服務
+- 可選：Duckling服務（用於日期解析）
 
 ### 安裝步驟
 
@@ -107,7 +180,7 @@ python main.py
 
 - `GET /`：Web界面
 - `POST /api/chat`：聊天API
-- `WebSocket /ws/chat/{conversation_id}`：WebSocket聊天
+- `WebSocket /ws/chat/{session_id}`：WebSocket聊天
 
 ## 系統架構解析
 
@@ -139,27 +212,24 @@ python main.py
 │   │   │   ├── hotel_search_plan_agent.py
 │   │   │   └── poi_search_agent.py
 │   │   └── generators/     # 生成類Agent
+│   │       ├── hotel_recommendation_agent.py
+│   │       ├── llm_agent.py
 │   │       └── response_generator_agent.py
 │   ├── cache/              # 快取模塊
 │   │   └── geo_cache.py    # 地理資料快取
-│   ├── controllers/        # 控制器模塊
-│   ├── di/                 # 依賴注入模塊
 │   ├── graph/              # LangGraph模塊
-│   │   └── workflow.py     # 工作流定義
+│   │   ├── workflow.py     # 工作流定義
+│   │   └── merge_func.py   # 狀態合併函數
 │   ├── models/             # 數據模型
 │   │   └── schemas.py      # 數據結構定義
-│   ├── protocols/          # 協議模塊
 │   ├── services/           # 服務模塊
-│   │   └── llm_service.py  # LLM服務
 │   ├── utils/              # 工具模塊
 │   ├── web/                # Web模塊
 │   │   ├── app.py          # FastAPI應用
 │   │   ├── websocket.py    # WebSocket處理
-│   │   ├── websocket_handler.py # WebSocket處理程序
 │   │   ├── static/         # 靜態文件
 │   │   └── templates/      # HTML模板
 │   └── config.py           # 配置模塊
-└── tests/                  # 測試模塊
 ```
 
 ### 核心模塊說明
@@ -193,13 +263,15 @@ python main.py
 **搜索類Agent**：
 
 - 旅館搜索：基本旅館搜索功能
-- 旅館模糊搜索：處理不完整條件下的搜索
-- 旅館方案搜索：搜索特定方案
-- 景點搜索：搜索周邊景點
+- 旅館模糊搜索：處理不完整條件下的搜索 (未實現)
+- 旅館方案搜索：搜索特定方案 (未實現)
+- 景點搜索：搜索周邊景點 (半實現 | 取得旅館座標後轉請求 google api可獲得景點)
 
 **生成類Agent**：
 
-- 回應生成：綜合所有信息，生成流暢的回應
+- LLM代理：處理LLM響應
+- 回應生成器：生成結構化響應
+- 旅館推薦：生成最終推薦
 
 #### 3. 地理資料快取 (`src/cache/geo_cache.py`)
 
@@ -207,7 +279,7 @@ python main.py
 
 - 縣市資料
 - 鄉鎮區資料
-- 地理座標資料
+- 縣市對應鄉鎮資料
 
 #### 4. 工作流程定義 (`src/graph/workflow.py`)
 
@@ -241,12 +313,14 @@ python main.py
 - [X] LangGraph工作流定義
 - [X] FastAPI後端服務
 - [X] WebSocket支援
+- [X] 實時進度回饋
 
 ### 進行中
 
 - [ ] 測試與性能優化
 - [ ] 各類解析調優
 - [ ] 更多API整合
+- [ ] 文檔完善
 
 ## 許可證
 
